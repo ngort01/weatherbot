@@ -94,6 +94,17 @@ python weatherbet.py report    # full breakdown of all resolved markets
 
 ---
 
+## Tests
+
+Characterization tests pin **current** bot behavior (including binary middle-bucket probabilities). See `TESTING_PLAN.md`.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+---
+
 ## Data Storage
 
 All data is saved to `data/markets/` — one JSON file per market. Each file contains:
