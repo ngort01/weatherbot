@@ -8,13 +8,8 @@ No SDK. No black box. Pure Python.
 
 ## Versions
 
-### `bot_v1.py` — Base Bot
-The foundation. Scans 6 US cities, fetches forecasts from NWS using airport station coordinates, finds matching temperature buckets on Polymarket, and enters trades when the market price is below the entry threshold.
-
-No math, no complexity. Just the core logic — good for understanding how the system works.
-
 ### `weatherbet.py` — Full Bot (current)
-Everything in v1, plus:
+The bot features:
 - **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
 - **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
 - **Expected Value** — skips trades where the math doesn't work
@@ -92,10 +87,33 @@ Get a free Visual Crossing API key at visualcrossing.com — used to fetch actua
 
 ## Usage
 ```bash
-python weatherbet.py           # start the bot — scans every hour
+python weatherbet.py           # start the bot — scans every hour, monitors every 10 min
+python weatherbet.py scan      # dry-run preview: markets + would-be trades (no fills)
 python weatherbet.py status    # balance and open positions
 python weatherbet.py report    # full breakdown of all resolved markets
 ```
+
+---
+
+## Tests
+
+Characterization tests pin **current** bot behavior (including binary middle-bucket probabilities). See `TESTING_PLAN.md`.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+---
+
+## Docs
+
+| Doc | For |
+|-----|-----|
+| [`AGENTS.md`](AGENTS.md) | AI agents / contributors — invariants, traps, how to change code safely |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the bot works, data model, dummy bet walkthrough |
+| [`IMPROVEMENTS.md`](IMPROVEMENTS.md) | Backlog and known design issues |
+| [`TESTING_PLAN.md`](TESTING_PLAN.md) | Characterization test philosophy and coverage plan |
 
 ---
 

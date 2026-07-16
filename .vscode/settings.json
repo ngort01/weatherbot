@@ -1,0 +1,7 @@
+{
+    "python.defaultInterpreterPath": ".venv/bin/python3",
+    "python.useEnvironmentsExtension": true,
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.autopep8"
+    }
+}
