@@ -44,6 +44,7 @@ Run from **repo root** (import loads `config.json` from cwd).
 source .venv/bin/activate   # or: python -m venv .venv && pip install -r requirements-dev.txt
 
 python weatherbet.py          # main loop (network + writes data/)
+python weatherbet.py scan     # dry-run: show markets + would-be trades (no fills/writes)
 python weatherbet.py status
 python weatherbet.py report
 

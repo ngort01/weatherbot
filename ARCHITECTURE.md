@@ -5,7 +5,11 @@ Single-file paper-trading bot for Polymarket **highest daily temperature** marke
 **No live orders.** The bot only reads Polymarket Gamma prices and debits/credits a simulated bankroll in `data/state.json`.
 
 Entry point: `weatherbet.py`  
-CLI: `python weatherbet.py [run|status|report]`
+CLI: `python weatherbet.py [run|scan|status|report]`
+
+- `run` — continuous loop (hourly full scan that **fills** paper trades + 10‑min monitor)
+- `scan` — **dry-run** preview only: fetch forecasts/markets, print findings and would-be entries; no fills, no state/market writes
+- `status` / `report` — read-only summaries
 
 ---
 

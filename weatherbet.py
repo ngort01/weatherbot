@@ -8,8 +8,9 @@ compares with Polymarket markets, paper trades using Kelly criterion.
 
 Usage:
     python weatherbet.py          # main loop
-    python weatherbet.py report   # full report
+    python weatherbet.py scan     # dry-run: show markets + would-be trades (no fills)
     python weatherbet.py status   # balance and open positions
+    python weatherbet.py report   # full report
 """
 
 import os
@@ -590,6 +591,404 @@ def take_forecast_snapshot(city_slug, dates):
     return snapshots
 
 
+def parse_event_outcomes(event):
+    """
+    Parse Gamma event markets into outcome dicts.
+
+    IMPORTANT: Gamma `outcomePrices` is [YES, NO] last/mid-style prices that
+    sum ~1 — NOT CLOB bestBid/bestAsk. We keep legacy keys bid/ask as
+    yes_price / no_price aliases for compatibility, but entry sizing must
+    re-fetch bestBid/bestAsk (see consider_entry).
+    """
+    outcomes = []
+    for market in event.get("markets", []):
+        question = market.get("question", "")
+        mid = str(market.get("id", ""))
+        volume = float(market.get("volume", 0))
+        rng = parse_temp_range(question)
+        if not rng:
+            continue
+        try:
+            prices = json.loads(market.get("outcomePrices", "[0.5,0.5]"))
+            yes_price = float(prices[0])
+            no_price = float(prices[1]) if len(prices) > 1 else (1.0 - yes_price)
+        except Exception:
+            continue
+        outcomes.append({
+            "question":   question,
+            "market_id":  mid,
+            "range":      rng,
+            # Canonical names
+            "yes_price":  round(yes_price, 4),
+            "no_price":   round(no_price, 4),
+            # Legacy aliases (misnamed — not real bid/ask)
+            "bid":        round(yes_price, 4),
+            "ask":        round(no_price, 4),
+            "price":      round(yes_price, 4),
+            "spread":     round(abs(no_price - yes_price), 4),
+            "volume":     round(volume, 0),
+        })
+    outcomes.sort(key=lambda x: x["range"][0])
+    return outcomes
+
+
+def consider_entry(
+    city_slug,
+    date_str,
+    outcomes,
+    forecast_temp,
+    best_source,
+    hours,
+    balance,
+    book,
+    *,
+    opened_at=None,
+    fetch_live_book=True,
+):
+    """
+    Evaluate opening YES on the single forecast-matched bucket.
+
+    Returns (signal_or_None, skip_reason_or_None).
+    Does not mutate book, balance, or market files.
+    When signal is returned, skip_reason is None and the caller may open (or preview).
+    """
+    if forecast_temp is None:
+        return None, "no forecast"
+    if hours < MIN_HOURS:
+        return None, f"hours {hours:.1f} < min {MIN_HOURS}"
+    if hours > MAX_HOURS:
+        return None, f"hours {hours:.1f} > max {MAX_HOURS}"
+
+    matched = None
+    for o in outcomes:
+        t_low, t_high = o["range"]
+        if in_bucket(forecast_temp, t_low, t_high):
+            matched = o
+            break
+    if not matched:
+        return None, "no matching bucket"
+
+    t_low, t_high = matched["range"]
+    volume = matched["volume"]
+    # outcomePrices are YES/NO — only useful as a rough mid until live book
+    yes_mid = matched.get(
+        "yes_price", matched.get("bid", matched.get("price", 0.5))
+    )
+
+    if volume < MIN_VOLUME:
+        return None, f"volume {volume:.0f} < min {MIN_VOLUME}"
+
+    sigma = get_sigma(city_slug, best_source or "ecmwf")
+    p = bucket_prob(forecast_temp, t_low, t_high, sigma)
+
+    # Provisional size from bankroll/kelly; final EV/shares use entry price
+    # (live bestAsk when available — never NO price from outcomePrices).
+    provisional_price = yes_mid if 0 < yes_mid < 1 else 0.5
+    kelly = calc_kelly(p, provisional_price)
+    size = bet_size(kelly, balance)
+    if size < 0.50:
+        return None, f"size ${size:.2f} < $0.50"
+
+    signal = {
+        "market_id":     matched["market_id"],
+        "question":      matched["question"],
+        "bucket_low":    t_low,
+        "bucket_high":   t_high,
+        "entry_price":   provisional_price,
+        "bid_at_entry":  provisional_price,
+        "spread":        None,
+        "shares":        round(size / provisional_price, 2),
+        "cost":          size,
+        "p":             round(p, 4),
+        "ev":            round(calc_ev(p, provisional_price), 4),
+        "kelly":         round(kelly, 4),
+        "forecast_temp": forecast_temp,
+        "forecast_src":  best_source,
+        "sigma":         sigma,
+        "opened_at":     opened_at,
+        "status":        "open",
+        "pnl":           None,
+        "exit_price":    None,
+        "close_reason":  None,
+        "closed_at":     None,
+        "stop_price":    round(provisional_price * 0.80, 4),
+        "book_source":   "yes_mid",  # upgraded to "clob" after live fetch
+    }
+
+    if fetch_live_book:
+        try:
+            r = requests.get(
+                f"https://gamma-api.polymarket.com/markets/{signal['market_id']}",
+                timeout=(3, 5),
+            )
+            mdata = r.json()
+            real_ask = float(mdata.get("bestAsk", signal["entry_price"]))
+            real_bid = float(mdata.get("bestBid", signal["bid_at_entry"]))
+            real_spread = round(real_ask - real_bid, 4)
+            if real_spread > MAX_SLIPPAGE or real_ask >= MAX_PRICE:
+                return None, (
+                    f"real ask ${real_ask:.3f} spread ${real_spread:.3f}"
+                )
+            if real_ask <= 0:
+                return None, "invalid live ask"
+            signal["entry_price"] = real_ask
+            signal["bid_at_entry"] = real_bid
+            signal["spread"] = real_spread
+            signal["shares"] = round(signal["cost"] / real_ask, 2)
+            signal["ev"] = round(calc_ev(signal["p"], real_ask), 4)
+            signal["kelly"] = round(calc_kelly(signal["p"], real_ask), 4)
+            signal["stop_price"] = round(real_ask * 0.80, 4)
+            signal["book_source"] = "clob"
+        except Exception as e:
+            # No trustworthy ask — do not pretend NO-price is a buy price
+            return None, f"live book fetch failed: {e}"
+
+    # Require a CLOB ask when live book was requested (normal path)
+    if fetch_live_book and signal.get("book_source") != "clob":
+        return None, "no live CLOB quote"
+
+    entry = signal["entry_price"]
+    if entry <= 0 or entry >= 1:
+        return None, "invalid entry price"
+    if signal["ev"] < MIN_EV:
+        return None, f"EV {signal['ev']:+.4f} < min {MIN_EV}"
+    if entry >= MAX_PRICE:
+        return None, (
+            f"ask ${entry:.3f} >= max_price {MAX_PRICE}"
+        )
+
+    risk_skip = risk_limit_reason(
+        city_slug, date_str, signal["cost"], balance, book
+    )
+    if risk_skip:
+        return None, f"risk: {risk_skip}"
+
+    return signal, None
+
+
+def _fmt_bucket(t_low, t_high, unit_sym):
+    if t_low == -999:
+        return f"≤{t_high}{unit_sym}"
+    if t_high == 999:
+        return f"≥{t_low}{unit_sym}"
+    if t_low == t_high:
+        return f"{t_low}{unit_sym}"
+    return f"{t_low}-{t_high}{unit_sym}"
+
+
+def _fmt_temp(val, unit_sym):
+    if val is None:
+        return "—"
+    return f"{val}{unit_sym}"
+
+
+def scan_preview():
+    """
+    Dry-run scan: fetch forecasts + markets, report findings and would-be
+    entries. Does not open/close positions, resolve, write market files, or
+    change balance.
+    """
+    global _cal
+    now = datetime.now(timezone.utc)
+    state = load_state()
+    balance = state["balance"]
+    # Virtual book for risk-cap preview only (not persisted)
+    book = portfolio_snapshot(load_all_markets())
+
+    found = 0
+    would_buys = []
+    skip_counts = {}
+
+    print(f"  Paper balance (unchanged): ${balance:,.2f}")
+    print(f"  Open positions (book):     {book['total']} | "
+          f"capital at risk ${book['capital']:,.2f}")
+    print(f"  Filters: min_ev={MIN_EV} max_price={MAX_PRICE} "
+          f"min_vol={MIN_VOLUME} hours=[{MIN_HOURS},{MAX_HOURS}] "
+          f"max_bet=${MAX_BET} max_slip={MAX_SLIPPAGE}")
+    print()
+
+    for city_slug, loc in LOCATIONS.items():
+        unit = loc["unit"]
+        unit_sym = "F" if unit == "F" else "C"
+        print(f"  -> {loc['name']} ({loc['station']})...", flush=True)
+
+        try:
+            dates = [(now + timedelta(days=i)).strftime("%Y-%m-%d")
+                     for i in range(4)]
+            snapshots = take_forecast_snapshot(city_slug, dates)
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"     skipped ({e})")
+            continue
+
+        city_hits = 0
+        for i, date in enumerate(dates):
+            dt = datetime.strptime(date, "%Y-%m-%d")
+            event = get_polymarket_event(
+                city_slug, MONTHS[dt.month - 1], dt.day, dt.year)
+            if not event:
+                continue
+
+            end_date = event.get("endDate", "")
+            hours = hours_to_resolution(end_date) if end_date else 0
+            horizon = f"D+{i}"
+            outcomes = parse_event_outcomes(event)
+            snap = snapshots.get(date, {})
+            forecast_temp = snap.get("best")
+            best_source = snap.get("best_source")
+
+            found += 1
+            city_hits += 1
+
+            # Read-only look at existing paper state
+            mkt = load_market(city_slug, date)
+            pos = (mkt or {}).get("position")
+            pos_status = (pos or {}).get("status")
+
+            src = (best_source or "?").upper()
+            fc_bits = (
+                f"best {_fmt_temp(forecast_temp, unit_sym)} ({src})"
+                f" | ECMWF {_fmt_temp(snap.get('ecmwf'), unit_sym)}"
+                f" HRRR {_fmt_temp(snap.get('hrrr'), unit_sym)}"
+                f" METAR {_fmt_temp(snap.get('metar'), unit_sym)}"
+            )
+            print(f"     {horizon} {date} | {hours:.1f}h left | {fc_bits}")
+            print(f"       buckets: {len(outcomes)} | "
+                  f"event end {end_date or '—'}")
+
+            # Matched bucket info (even if we will not trade)
+            matched = None
+            if forecast_temp is not None:
+                for o in outcomes:
+                    if in_bucket(forecast_temp, o["range"][0], o["range"][1]):
+                        matched = o
+                        break
+            if matched:
+                t_low, t_high = matched["range"]
+                yes_p = matched.get("yes_price", matched.get("bid"))
+                no_p = matched.get("no_price", matched.get("ask"))
+                print(
+                    f"       match {_fmt_bucket(t_low, t_high, unit_sym)} | "
+                    f"yes ${yes_p:.3f} no ${no_p:.3f} "
+                    f"(outcomePrices, not CLOB) | "
+                    f"vol {matched['volume']:.0f}"
+                )
+            else:
+                print("       match — (forecast not in any bucket)")
+
+            if mkt and mkt.get("status") == "resolved":
+                print("       [HOLD] market already resolved on disk")
+                skip_counts["resolved"] = skip_counts.get("resolved", 0) + 1
+                continue
+            if pos_status == "open":
+                pl = pos.get("bucket_low")
+                ph = pos.get("bucket_high")
+                print(
+                    f"       [HOLD] open paper pos "
+                    f"{_fmt_bucket(pl, ph, unit_sym)} @ "
+                    f"${pos.get('entry_price', 0):.3f} "
+                    f"(${pos.get('cost', 0):.2f})"
+                )
+                skip_counts["already_open"] = skip_counts.get(
+                    "already_open", 0) + 1
+                continue
+            if pos is not None:
+                print(
+                    f"       [HOLD] prior position on file "
+                    f"(status={pos_status}) — no re-entry"
+                )
+                skip_counts["prior_position"] = skip_counts.get(
+                    "prior_position", 0) + 1
+                continue
+
+            signal, reason = consider_entry(
+                city_slug,
+                date,
+                outcomes,
+                forecast_temp,
+                best_source,
+                hours,
+                balance,
+                book,
+                opened_at=snap.get("ts"),
+                fetch_live_book=True,
+            )
+            if signal:
+                bucket_label = _fmt_bucket(
+                    signal["bucket_low"], signal["bucket_high"], unit_sym)
+                spr = signal.get("spread")
+                spr_s = f"${spr:.3f}" if spr is not None else "—"
+                print(
+                    f"       [WOULD BUY] {bucket_label} | "
+                    f"CLOB bid ${signal['bid_at_entry']:.3f} "
+                    f"ask ${signal['entry_price']:.3f} "
+                    f"spr {spr_s} | "
+                    f"EV {signal['ev']:+.2f} | p={signal['p']:.2f} | "
+                    f"${signal['cost']:.2f} ({signal['shares']} sh) | "
+                    f"{(signal['forecast_src'] or '?').upper()}"
+                )
+                print(
+                    f"                paper fill assumes full ${signal['cost']:.2f} "
+                    f"at bestAsk (no depth check)"
+                )
+                would_buys.append({
+                    "city": loc["name"],
+                    "city_slug": city_slug,
+                    "date": date,
+                    "horizon": horizon,
+                    "hours": round(hours, 1),
+                    "bucket": bucket_label,
+                    "signal": signal,
+                })
+                # Virtual fill so later rows respect risk caps / bankroll
+                balance -= signal["cost"]
+                book_register_open(
+                    book, city_slug, date, signal["cost"])
+            else:
+                print(f"       [SKIP] {reason}")
+                key = reason.split(":")[0].split("<")[0].strip()
+                if len(key) > 40:
+                    key = key[:40]
+                skip_counts[key] = skip_counts.get(key, 0) + 1
+
+            time.sleep(0.1)
+
+        if city_hits == 0:
+            print("     (no Polymarket events in next 4 days)")
+
+    # --- Summary ---
+    print(f"\n{'='*55}")
+    print(f"  SCAN PREVIEW SUMMARY (dry-run — nothing filled)")
+    print(f"{'='*55}")
+    print(f"  Markets found:     {found}")
+    print(f"  Would open:        {len(would_buys)}")
+    if skip_counts:
+        print(f"  Skip breakdown:")
+        for k, n in sorted(skip_counts.items(), key=lambda x: -x[1]):
+            print(f"    {n:3d}  {k}")
+
+    if would_buys:
+        total_cost = sum(w["signal"]["cost"] for w in would_buys)
+        print(f"\n  Hypothetical new positions (${total_cost:.2f} total):")
+        for w in would_buys:
+            s = w["signal"]
+            print(
+                f"    {w['city']:<16} {w['horizon']} {w['date']} | "
+                f"{w['bucket']:<12} | ${s['entry_price']:.3f} | "
+                f"EV {s['ev']:+.2f} | ${s['cost']:.2f} | "
+                f"{(s['forecast_src'] or '?').upper()}"
+            )
+        print(
+            f"\n  Virtual balance after would-buys: ${balance:,.2f} "
+            f"(not saved)"
+        )
+    else:
+        print("\n  No new positions would be opened under current filters.")
+
+    print(f"{'='*55}\n")
+    return found, len(would_buys)
+
+
 def scan_and_update():
     """Main function of one cycle: updates forecasts, opens/closes positions."""
     global _cal
@@ -639,33 +1038,7 @@ def scan_and_update():
                 continue
 
             # Update outcomes list — prices taken directly from event
-            outcomes = []
-            for market in event.get("markets", []):
-                question = market.get("question", "")
-                mid = str(market.get("id", ""))
-                volume = float(market.get("volume", 0))
-                rng = parse_temp_range(question)
-                if not rng:
-                    continue
-                try:
-                    prices = json.loads(market.get(
-                        "outcomePrices", "[0.5,0.5]"))
-                    bid = float(prices[0])
-                    ask = float(prices[1]) if len(prices) > 1 else bid
-                except Exception:
-                    continue
-                outcomes.append({
-                    "question":  question,
-                    "market_id": mid,
-                    "range":     rng,
-                    "bid":       round(bid, 4),
-                    "ask":       round(ask, 4),
-                    "price":     round(bid, 4),   # for compatibility
-                    "spread":    round(ask - bid, 4),
-                    "volume":    round(volume, 0),
-                })
-
-            outcomes.sort(key=lambda x: x["range"][0])
+            outcomes = parse_event_outcomes(event)
             mkt["all_outcomes"] = outcomes
 
             # Forecast snapshot
@@ -764,104 +1137,42 @@ def scan_and_update():
             # --- OPEN POSITION ---
             # One position per market record (closed position blocks re-entry).
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
-                sigma = get_sigma(city_slug, best_source or "ecmwf")
-                best_signal = None
-
-                # Find exactly ONE bucket that matches the forecast
-                # If forecast doesn't fit any bucket cleanly — skip this market
-                matched_bucket = None
-                for o in outcomes:
-                    t_low, t_high = o["range"]
-                    if in_bucket(forecast_temp, t_low, t_high):
-                        matched_bucket = o
-                        break
-
-                if matched_bucket:
-                    o = matched_bucket
-                    t_low, t_high = o["range"]
-                    volume = o["volume"]
-                    bid = o.get("bid", o["price"])
-                    ask = o.get("ask", o["price"])
-                    spread = o.get("spread", 0)
-
-                    # All filters — if any fails, skip this market entirely
-                    if volume >= MIN_VOLUME:
-                        p = bucket_prob(forecast_temp, t_low, t_high, sigma)
-                        ev = calc_ev(p, ask)
-                        if ev >= MIN_EV:
-                            kelly = calc_kelly(p, ask)
-                            size = bet_size(kelly, balance)
-                            if size >= 0.50:
-                                best_signal = {
-                                    "market_id":    o["market_id"],
-                                    "question":     o["question"],
-                                    "bucket_low":   t_low,
-                                    "bucket_high":  t_high,
-                                    "entry_price":  ask,
-                                    "bid_at_entry": bid,
-                                    "spread":       spread,
-                                    "shares":       round(size / ask, 2),
-                                    "cost":         size,
-                                    "p":            round(p, 4),
-                                    "ev":           round(ev, 4),
-                                    "kelly":        round(kelly, 4),
-                                    "forecast_temp": forecast_temp,
-                                    "forecast_src": best_source,
-                                    "sigma":        sigma,
-                                    "opened_at":    snap.get("ts"),
-                                    "status":       "open",
-                                    "pnl":          None,
-                                    "exit_price":   None,
-                                    "close_reason": None,
-                                    "closed_at":    None,
-                                }
-
+                best_signal, skip_reason = consider_entry(
+                    city_slug,
+                    date,
+                    outcomes,
+                    forecast_temp,
+                    best_source,
+                    hours,
+                    balance,
+                    book,
+                    opened_at=snap.get("ts"),
+                    fetch_live_book=True,
+                )
                 if best_signal:
-                    # Fetch real bestAsk from Polymarket API for accurate entry price
-                    skip_position = False
-                    try:
-                        r = requests.get(
-                            f"https://gamma-api.polymarket.com/markets/{best_signal['market_id']}", timeout=(3, 5))
-                        mdata = r.json()
-                        real_ask = float(
-                            mdata.get("bestAsk", best_signal["entry_price"]))
-                        real_bid = float(
-                            mdata.get("bestBid", best_signal["bid_at_entry"]))
-                        real_spread = round(real_ask - real_bid, 4)
-                        # Re-check slippage and price with real values
-                        if real_spread > MAX_SLIPPAGE or real_ask >= MAX_PRICE:
-                            print(
-                                f"  [SKIP] {loc['name']} {date} — real ask ${real_ask:.3f} spread ${real_spread:.3f}")
-                            skip_position = True
-                        else:
-                            best_signal["entry_price"] = real_ask
-                            best_signal["bid_at_entry"] = real_bid
-                            best_signal["spread"] = real_spread
-                            best_signal["shares"] = round(
-                                best_signal["cost"] / real_ask, 2)
-                            best_signal["ev"] = round(
-                                calc_ev(best_signal["p"], real_ask), 4)
-                    except Exception as e:
+                    balance -= best_signal["cost"]
+                    book_register_open(
+                        book, city_slug, date, best_signal["cost"])
+                    mkt["position"] = best_signal
+                    state["total_trades"] += 1
+                    new_pos += 1
+                    bucket_label = _fmt_bucket(
+                        best_signal["bucket_low"],
+                        best_signal["bucket_high"],
+                        unit_sym,
+                    )
+                    src = (best_signal["forecast_src"] or "?").upper()
+                    print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
+                          f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
+                          f"${best_signal['cost']:.2f} ({src})")
+                elif skip_reason:
+                    if skip_reason.startswith("risk:"):
                         print(
-                            f"  [WARN] Could not fetch real ask for {best_signal['market_id']}: {e}")
-
-                    if not skip_position and best_signal["entry_price"] < MAX_PRICE:
-                        risk_skip = risk_limit_reason(
-                            city_slug, date, best_signal["cost"], balance, book)
-                        if risk_skip:
-                            print(
-                                f"  [RISK] {loc['name']} {date} — skip: {risk_skip}")
-                        else:
-                            balance -= best_signal["cost"]
-                            book_register_open(
-                                book, city_slug, date, best_signal["cost"])
-                            mkt["position"] = best_signal
-                            state["total_trades"] += 1
-                            new_pos += 1
-                            bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
-                            print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
-                                  f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
-                                  f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
+                            f"  [RISK] {loc['name']} {date} — skip: "
+                            f"{skip_reason[len('risk:'):].strip()}")
+                    elif skip_reason.startswith("real ask") or skip_reason.startswith("ask $"):
+                        print(
+                            f"  [SKIP] {loc['name']} {date} — {skip_reason}")
 
             # Market closed by time
             if hours < 0.5 and mkt["status"] == "open":
@@ -1253,10 +1564,48 @@ def run_loop():
 # =============================================================================
 
 
+def run_scan_once():
+    """
+    Dry-run scan: show markets found and positions that *would* open.
+    Does not fill, resolve, or write state/market files.
+    """
+    global _cal
+    _cal = load_cal()
+
+    print(f"\n{'='*55}")
+    print(f"  WEATHERBET — SCAN PREVIEW (dry-run)")
+    print(f"{'='*55}")
+    print(f"  Cities:     {len(LOCATIONS)}")
+    print(f"  Balance:    ${load_state()['balance']:,.2f} | Max bet: ${MAX_BET}")
+    print(f"  Risk:       open≤{MAX_OPEN_POSITIONS} | "
+          f"city≤{MAX_OPEN_PER_CITY} | date≤{MAX_OPEN_PER_DATE} | "
+          f"capital≤{MAX_CAPITAL_AT_RISK_PCT:.0%}")
+    print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0)")
+    print(f"  Mode:       read-only — no paper fills, no disk writes")
+    print(f"  Data:       {DATA_DIR.resolve()} (read for open book only)\n")
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now_str}] preview scan...")
+    try:
+        found, would = scan_preview()
+        print(f"  Done. Found {found} market(s); would open {would}.\n")
+    except KeyboardInterrupt:
+        print(f"\n  Interrupted — no changes written.")
+        raise SystemExit(130)
+    except requests.exceptions.ConnectionError:
+        print(f"  Connection lost during scan.")
+        raise SystemExit(1)
+    except Exception as e:
+        print(f"  Error: {e}")
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
     if cmd == "run":
         run_loop()
+    elif cmd == "scan":
+        run_scan_once()
     elif cmd == "status":
         _cal = load_cal()
         print_status()
@@ -1264,4 +1613,4 @@ if __name__ == "__main__":
         _cal = load_cal()
         print_report()
     else:
-        print("Usage: python weatherbet.py [run|status|report]")
+        print("Usage: python weatherbet.py [run|scan|status|report]")

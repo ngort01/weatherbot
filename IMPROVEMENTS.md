@@ -240,11 +240,11 @@ Already saves market JSON. Expand:
 
 ### 14. CLI that matches reality
 
-**Status:** Partial — entrypoint is `weatherbet.py` (renamed). Still no one-shot `scan`.
+**Status:** Partial — entrypoint is `weatherbet.py`; dry-run `scan` shipped.
 
 **Add:**
 
-- [ ] `python weatherbet.py scan` (single cycle, exit)
+- [x] `python weatherbet.py scan` — dry-run preview (markets found + would-be trades; no fills/writes)
 - [x] Consistent naming (`weatherbet.py`)
 - [ ] Better logging levels
 
