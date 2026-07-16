@@ -10,6 +10,8 @@ Last updated: 2026-07-16
 
 ### 1. Probability model — don't "fix" it with a naive continuous CDF
 
+**Status:** Open — baseline *characterized* in tests (`tests/test_bucket_prob.py`). No product change yet.
+
 **What the code does today:** For regular buckets, `bucket_prob` is binary:
 
 - forecast in bucket → `p = 1.0`
@@ -80,30 +82,40 @@ Either way: **calibration of residual error is the product**, not "continuous vs
 
 ### 2. Make calibration actually work (this is the real math core)
 
-Current calibration only tunes sigma after 30 resolved markets, and sigma barely feeds the main path for middle buckets.
+**Status:** Partial (2026-07-16)
 
-**Worse than the doc used to admit:** `get_actual_temp()` (Visual Crossing) exists but is **never called** on resolve. `actual_temp` stays `None`, so residual MAE never fills. Self-learning is dead code until that is wired.
+**Done:**
 
-**Improvements:**
+- [x] Call `get_actual_temp` on Polymarket resolve; store `actual_temp`
+- [x] Backfill actuals for past market dates (early exits still learn residuals)
+- [x] Backfill Polymarket `resolved_outcome` for early-exited positions (counterfactual bucket win/loss; no double bankroll credit; stores `hold_to_resolution_pnl`)
+- [x] `run_calibration` accepts `status == "resolved"` **or** `resolved` flag
+- [x] Read production snapshot shape (`ecmwf` / `hrrr` / `metar` keys) via `snapshot_source_temp`
+- [x] Track **bias** (mean signed error) alongside MAE→sigma
+- [x] Characterization tests updated (`tests/test_calibration.py`)
 
-- Actually record official/assumed station temps on resolution
-- Lower `calibration_min` once you have quality data (or use hierarchical defaults earlier)
-- Apply calibrated σ **and bias** to every probability estimate (if on probabilistic path)
-- Track bias (signed error), not just MAE — forecasts can be systematically hot/cold by city
-- Separate calibration by horizon (D+0 vs D+1 vs D+2)
-- Report model-implied mode mass vs market mode price (are you σ=2 or is the book σ≈1?)
+**Still open:**
+
+- [ ] Lower `calibration_min` once quality data exists (or hierarchical defaults earlier)
+- [ ] Apply calibrated σ **and bias** to every probability estimate (needs §1 product decision — middle bins still ignore σ)
+- [ ] Separate calibration by horizon (D+0 vs D+1 vs D+2)
+- [ ] Report model-implied mode mass vs market mode price
 
 ### 3. Portfolio / correlation risk
 
-13 open weather bets can all die on the same air mass.
+**Status:** Partial (2026-07-16) — hard caps shipped; correlation haircut not yet.
 
-**Add:**
+**Done** (`config.json` + open path `[RISK]` skips):
 
-- Max open positions total
-- Max open per city
-- Max open per date
-- Max total capital at risk (% of bankroll)
-- Correlation haircut when multiple cities share the same weather regime
+- [x] Max open positions total — `max_open_positions` (default 10)
+- [x] Max open per city — `max_open_per_city` (default 2)
+- [x] Max open per date — `max_open_per_date` (default 4)
+- [x] Max total capital at risk (% of equity = cash + open costs) — `max_capital_at_risk_pct` (default 0.15)
+- [x] Unit tests — `tests/test_portfolio_risk.py`
+
+**Still open:**
+
+- [ ] Correlation haircut when multiple cities share the same weather regime
 
 ---
 
@@ -228,14 +240,13 @@ Already saves market JSON. Expand:
 
 ### 14. CLI that matches reality
 
-README says `weatherbet.py`; repo has `bot_v2.py`.
-No true one-shot `scan` command — only `run|status|report`.
+**Status:** Partial — entrypoint is `weatherbet.py` (renamed). Still no one-shot `scan`.
 
 **Add:**
 
-- `python bot_v2.py scan` (single cycle, exit)
-- Consistent naming
-- Better logging levels
+- [ ] `python weatherbet.py scan` (single cycle, exit)
+- [x] Consistent naming (`weatherbet.py`)
+- [ ] Better logging levels
 
 ### 15. Monitoring
 
@@ -254,6 +265,7 @@ Current-ish defaults:
 - `max_bet: 20`
 - `kelly_fraction: 0.25`
 - `SIGMA_F: 2.0` / `SIGMA_C: 1.2` (code constants)
+- `max_open_positions: 10` / `max_open_per_city: 2` / `max_open_per_date: 4` / `max_capital_at_risk_pct: 0.15`
 
 If you move to probabilistic `p`:
 
@@ -266,9 +278,9 @@ If you move to probabilistic `p`:
 ## Priority order (if we actually ship upgrades)
 
 1. **Decide strategy honesty:** probabilistic book vs match-style filter — then implement that, not a slogan CDF
-2. **Wire resolution actuals + residual calibration** (bias, σ, horizon) — dead without this
+2. ~~Wire resolution actuals + residual calibration plumbing~~ **Partial — actuals + sigma/bias file work; not applied to middle-bin `p` yet**
 3. **If probabilistic:** resolution-aware bins + full-event scoring; only then EV/Kelly mean something
-4. Portfolio caps / risk limits (needed either path — binary currently stacks correlated max bets)
+4. ~~Portfolio caps / risk limits~~ **Partial — hard caps done; correlation haircut open**
 5. Source blending after residuals are real
 6. Resolution source audit (defines bins + avoids station heems)
 7. Paper → live via `py-sdk` only after resolved track record
@@ -292,7 +304,7 @@ If you move to probabilistic `p`:
 - Paper bot opened ~13 positions quickly
 - Many buys at max bet because `p≈1` under current math
 - VC key works
-- Continuous mode runs via `python bot_v2.py run`
+- Continuous mode runs via `python weatherbet.py run`
 - Self-learning exists in name only until actuals + residual wiring work
 
 ## Notes from review (2026-07-16)
@@ -302,5 +314,13 @@ If you move to probabilistic `p`:
 - Continuous with default σ=2 fights typical Polymarket favorite prices (~30–45¢ vs ~20% model mass)
 - Market-implied σ for mode bins is closer to ~1.1°F if Gaussian — calibrate, don't assume 2.0
 - Repo has no `py-clob-client`; live path is greenfield `py-sdk` + env secrets
+- Characterization test suite added (`pytest` — see `TESTING_PLAN.md`)
+
+## Shipped (2026-07-16)
+
+- Characterization tests for math/parse/storage/calibration baseline
+- Portfolio hard caps (total / city / date / capital %)
+- Resolve + backfill station `actual_temp`; calibration reads production snaps; stores bias
+- Early-exit markets: Polymarket `resolved_outcome` + `hold_to_resolution_pnl` (annotate only; bankroll unchanged)
 
 If future-you is reading this: pick an honest probability product, calibrate residuals, then size. Don't paste CDF and call it fixed, regard.

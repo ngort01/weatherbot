@@ -43,6 +43,11 @@ KELLY_FRACTION = _cfg.get("kelly_fraction", 0.25)
 MAX_SLIPPAGE = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL = _cfg.get("scan_interval", 3600)   # every hour
 CALIBRATION_MIN = _cfg.get("calibration_min", 30)
+# Portfolio risk caps (IMPROVEMENTS §3)
+MAX_OPEN_POSITIONS = int(_cfg.get("max_open_positions", 10))
+MAX_OPEN_PER_CITY = int(_cfg.get("max_open_per_city", 2))
+MAX_OPEN_PER_DATE = int(_cfg.get("max_open_per_date", 4))
+MAX_CAPITAL_AT_RISK_PCT = float(_cfg.get("max_capital_at_risk_pct", 0.15))
 # Secret lives in .env — never config.json
 VC_KEY = os.getenv("VC_KEY", _cfg.get("vc_key", ""))
 
@@ -153,31 +158,60 @@ def get_sigma(city_slug, source="ecmwf"):
     return SIGMA_F if LOCATIONS[city_slug]["unit"] == "F" else SIGMA_C
 
 
+def snapshot_source_temp(snap, source):
+    """
+    Extract a source temperature from a forecast snapshot.
+    Supports production shape (ecmwf/hrrr/metar keys) and legacy
+    characterization shape ({"source": "...", "temp": ...}).
+    """
+    if not snap:
+        return None
+    if source in snap and snap[source] is not None:
+        return snap[source]
+    if snap.get("source") == source and snap.get("temp") is not None:
+        return snap["temp"]
+    return None
+
+
 def run_calibration(markets):
-    """Recalculates sigma from resolved markets."""
-    resolved = [m for m in markets if m.get(
-        "resolved") and m.get("actual_temp") is not None]
+    """Recalculates sigma (MAE) and bias (mean signed error) from markets with actuals."""
+    resolved = [
+        m for m in markets
+        if m.get("actual_temp") is not None
+        and (m.get("status") == "resolved" or m.get("resolved"))
+    ]
     cal = load_cal()
     updated = []
 
     for source in ["ecmwf", "hrrr", "metar"]:
         for city in set(m["city"] for m in resolved):
             group = [m for m in resolved if m["city"] == city]
-            errors = []
+            abs_errors = []
+            signed_errors = []
             for m in group:
-                snap = next((s for s in reversed(m.get("forecast_snapshots", []))
-                             if s["source"] == source), None)
-                if snap and snap.get("temp") is not None:
-                    errors.append(abs(snap["temp"] - m["actual_temp"]))
-            if len(errors) < CALIBRATION_MIN:
+                temp = None
+                for s in reversed(m.get("forecast_snapshots", [])):
+                    temp = snapshot_source_temp(s, source)
+                    if temp is not None:
+                        break
+                if temp is not None:
+                    err = float(temp) - float(m["actual_temp"])
+                    signed_errors.append(err)
+                    abs_errors.append(abs(err))
+            if len(abs_errors) < CALIBRATION_MIN:
                 continue
-            mae = sum(errors) / len(errors)
+            mae = sum(abs_errors) / len(abs_errors)
+            bias = sum(signed_errors) / len(signed_errors)
             key = f"{city}_{source}"
             old = cal.get(key, {}).get(
                 "sigma", SIGMA_F if LOCATIONS[city]["unit"] == "F" else SIGMA_C)
             new = round(mae, 3)
-            cal[key] = {"sigma": new, "n": len(
-                errors), "updated_at": datetime.now(timezone.utc).isoformat()}
+            cal[key] = {
+                "sigma": new,
+                "bias": round(bias, 3),
+                "n": len(abs_errors),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
             if abs(new - old) > 0.05:
                 updated.append(
                     f"{LOCATIONS[city]['name']} {source}: {old:.2f}->{new:.2f}")
@@ -186,6 +220,72 @@ def run_calibration(markets):
     if updated:
         print(f"  [CAL] {', '.join(updated)}")
     return cal
+
+
+# =============================================================================
+# PORTFOLIO RISK
+# =============================================================================
+
+
+def portfolio_snapshot(markets=None):
+    """Aggregate open positions: counts and capital at risk (sum of costs)."""
+    if markets is None:
+        markets = load_all_markets()
+    total = 0
+    by_city = {}
+    by_date = {}
+    capital = 0.0
+    for m in markets:
+        pos = m.get("position") or {}
+        if pos.get("status") != "open":
+            continue
+        total += 1
+        city = m["city"]
+        date = m["date"]
+        by_city[city] = by_city.get(city, 0) + 1
+        by_date[date] = by_date.get(date, 0) + 1
+        capital += float(pos.get("cost") or 0.0)
+    return {
+        "total": total,
+        "by_city": by_city,
+        "by_date": by_date,
+        "capital": capital,
+    }
+
+
+def risk_limit_reason(city_slug, date_str, cost, balance, book):
+    """
+    Return a human-readable skip reason if opening would breach portfolio caps,
+    else None. `book` is a portfolio_snapshot dict (mutated by caller on open/close).
+    """
+    if book["total"] >= MAX_OPEN_POSITIONS:
+        return f"max open positions ({MAX_OPEN_POSITIONS})"
+    if book["by_city"].get(city_slug, 0) >= MAX_OPEN_PER_CITY:
+        return f"max open per city ({MAX_OPEN_PER_CITY})"
+    if book["by_date"].get(date_str, 0) >= MAX_OPEN_PER_DATE:
+        return f"max open per date ({MAX_OPEN_PER_DATE})"
+    equity = balance + book["capital"]
+    if equity <= 0:
+        return "no equity"
+    if (book["capital"] + cost) / equity > MAX_CAPITAL_AT_RISK_PCT + 1e-12:
+        return f"max capital at risk ({MAX_CAPITAL_AT_RISK_PCT:.0%})"
+    return None
+
+
+def book_register_open(book, city_slug, date_str, cost):
+    book["total"] += 1
+    book["by_city"][city_slug] = book["by_city"].get(city_slug, 0) + 1
+    book["by_date"][date_str] = book["by_date"].get(date_str, 0) + 1
+    book["capital"] += float(cost)
+
+
+def book_register_close(book, city_slug, date_str, cost):
+    book["total"] = max(0, book["total"] - 1)
+    if city_slug in book["by_city"]:
+        book["by_city"][city_slug] = max(0, book["by_city"][city_slug] - 1)
+    if date_str in book["by_date"]:
+        book["by_date"][date_str] = max(0, book["by_date"][date_str] - 1)
+    book["capital"] = max(0.0, book["capital"] - float(cost))
 
 # =============================================================================
 # FORECASTS
@@ -499,6 +599,8 @@ def scan_and_update():
     new_pos = 0
     closed = 0
     resolved = 0
+    # Live portfolio book for risk caps (updated as we open/close in this scan)
+    book = portfolio_snapshot(load_all_markets())
 
     for city_slug, loc in LOCATIONS.items():
         unit = loc["unit"]
@@ -616,6 +718,7 @@ def scan_and_update():
                     if current_price <= stop:
                         pnl = round((current_price - entry) * pos["shares"], 2)
                         balance += pos["cost"] + pnl
+                        book_register_close(book, city_slug, date, pos["cost"])
                         pos["closed_at"] = snap.get("ts")
                         pos["close_reason"] = "stop_loss" if current_price < entry else "trailing_stop"
                         pos["exit_price"] = current_price
@@ -627,7 +730,7 @@ def scan_and_update():
                             f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl >= 0 else ''}{pnl:.2f}")
 
             # --- CLOSE POSITION if forecast shifted 2+ degrees ---
-            if mkt.get("position") and forecast_temp is not None:
+            if mkt.get("position") and mkt["position"].get("status") == "open" and forecast_temp is not None:
                 pos = mkt["position"]
                 old_bucket_low = pos["bucket_low"]
                 old_bucket_high = pos["bucket_high"]
@@ -648,6 +751,7 @@ def scan_and_update():
                         pnl = round(
                             (current_price - pos["entry_price"]) * pos["shares"], 2)
                         balance += pos["cost"] + pnl
+                        book_register_close(book, city_slug, date, pos["cost"])
                         mkt["position"]["closed_at"] = snap.get("ts")
                         mkt["position"]["close_reason"] = "forecast_changed"
                         mkt["position"]["exit_price"] = current_price
@@ -658,6 +762,7 @@ def scan_and_update():
                             f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl >= 0 else ''}{pnl:.2f}")
 
             # --- OPEN POSITION ---
+            # One position per market record (closed position blocks re-entry).
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
                 sigma = get_sigma(city_slug, best_source or "ecmwf")
                 best_signal = None
@@ -741,14 +846,22 @@ def scan_and_update():
                             f"  [WARN] Could not fetch real ask for {best_signal['market_id']}: {e}")
 
                     if not skip_position and best_signal["entry_price"] < MAX_PRICE:
-                        balance -= best_signal["cost"]
-                        mkt["position"] = best_signal
-                        state["total_trades"] += 1
-                        new_pos += 1
-                        bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
-                        print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
-                              f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
-                              f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
+                        risk_skip = risk_limit_reason(
+                            city_slug, date, best_signal["cost"], balance, book)
+                        if risk_skip:
+                            print(
+                                f"  [RISK] {loc['name']} {date} — skip: {risk_skip}")
+                        else:
+                            balance -= best_signal["cost"]
+                            book_register_open(
+                                book, city_slug, date, best_signal["cost"])
+                            mkt["position"] = best_signal
+                            state["total_trades"] += 1
+                            new_pos += 1
+                            bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
+                            print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
+                                  f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
+                                  f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
 
             # Market closed by time
             if hours < 0.5 and mkt["status"] == "open":
@@ -759,62 +872,101 @@ def scan_and_update():
 
         print("ok")
 
-    # --- AUTO-RESOLUTION ---
+    # --- RESOLUTION + ACTUALS ---
+    # 1) Open positions held to Polymarket close → settle bankroll + outcome
+    # 2) Early-exited positions → still record resolved_outcome (counterfactual
+    #    "did our bucket win?") without touching balance
+    # 3) Past dates → backfill station actual_temp for residual calibration
+    today_str = now.strftime("%Y-%m-%d")
+    outcome_backfill = 0
+
     for mkt in load_all_markets():
-        if mkt["status"] == "resolved":
-            continue
-
         pos = mkt.get("position")
-        if not pos or pos.get("status") != "open":
-            continue
+        market_id = (pos or {}).get("market_id")
+        dirty = False
 
-        market_id = pos.get("market_id")
-        if not market_id:
-            continue
+        # --- Polymarket bucket outcome ---
+        if market_id and mkt.get("resolved_outcome") is None:
+            won = check_market_resolved(market_id)
+            if won is not None:
+                mkt["resolved_outcome"] = "win" if won else "loss"
+                mkt["resolved"] = True
+                mkt["status"] = "resolved"
+                dirty = True
 
-        # Check if market closed on Polymarket
-        won = check_market_resolved(market_id)
-        if won is None:
-            continue  # market still open
+                price = pos["entry_price"]
+                size = pos["cost"]
+                shares = pos["shares"]
+                hold_pnl = round(
+                    shares * (1 - price), 2) if won else round(-size, 2)
+                # What PnL would have been if held to $0/$1 resolution
+                mkt["hold_to_resolution_pnl"] = hold_pnl
 
-        # Market closed — record result
-        price = pos["entry_price"]
-        size = pos["cost"]
-        shares = pos["shares"]
-        pnl = round(shares * (1 - price), 2) if won else round(-size, 2)
+                if pos.get("status") == "open":
+                    # Still open at settlement → credit bankroll
+                    balance += size + hold_pnl
+                    book_register_close(book, mkt["city"], mkt["date"], size)
+                    pos["exit_price"] = 1.0 if won else 0.0
+                    pos["pnl"] = hold_pnl
+                    pos["close_reason"] = "resolved"
+                    pos["closed_at"] = now.isoformat()
+                    pos["status"] = "closed"
+                    mkt["pnl"] = hold_pnl
+                    mkt["held_to_resolution"] = True
+                    if won:
+                        state["wins"] += 1
+                    else:
+                        state["losses"] += 1
+                    result = "WIN" if won else "LOSS"
+                    print(
+                        f"  [{result}] {mkt['city_name']} {mkt['date']} | "
+                        f"held | PnL: {'+' if hold_pnl >= 0 else ''}{hold_pnl:.2f}")
+                    resolved += 1
+                else:
+                    # Already exited (TP/stop/forecast) — annotate only
+                    mkt["held_to_resolution"] = False
+                    exit_pnl = pos.get("pnl")
+                    exit_str = (
+                        f"exit PnL {'+' if exit_pnl >= 0 else ''}{exit_pnl:.2f}"
+                        if exit_pnl is not None else "exit PnL n/a"
+                    )
+                    result = "BUCKET WIN" if won else "BUCKET LOSS"
+                    print(
+                        f"  [{result}] {mkt['city_name']} {mkt['date']} | "
+                        f"exited early ({pos.get('close_reason')}) | "
+                        f"{exit_str} | hold would be "
+                        f"{'+' if hold_pnl >= 0 else ''}{hold_pnl:.2f}")
+                    outcome_backfill += 1
 
-        balance += size + pnl
-        pos["exit_price"] = 1.0 if won else 0.0
-        pos["pnl"] = pnl
-        pos["close_reason"] = "resolved"
-        pos["closed_at"] = now.isoformat()
-        pos["status"] = "closed"
-        mkt["pnl"] = pnl
-        mkt["status"] = "resolved"
-        mkt["resolved_outcome"] = "win" if won else "loss"
+                time.sleep(0.3)
 
-        if won:
-            state["wins"] += 1
-        else:
-            state["losses"] += 1
+        # --- Station actual (residuals), once the calendar day is past ---
+        if mkt.get("actual_temp") is None and mkt.get("date", today_str) < today_str:
+            actual = get_actual_temp(mkt["city"], mkt["date"])
+            if actual is not None:
+                mkt["actual_temp"] = actual
+                mkt["resolved"] = True
+                dirty = True
+                time.sleep(0.2)
 
-        result = "WIN" if won else "LOSS"
-        print(
-            f"  [{result}] {mkt['city_name']} {mkt['date']} | PnL: {'+'if pnl >= 0 else ''}{pnl:.2f}")
-        resolved += 1
+        if dirty:
+            save_market(mkt)
 
-        save_market(mkt)
-        time.sleep(0.3)
+    if outcome_backfill:
+        print(f"  [SETTLE] annotated {outcome_backfill} early-exit market outcome(s)")
 
     state["balance"] = round(balance, 2)
     state["peak_balance"] = max(state.get("peak_balance", balance), balance)
     save_state(state)
 
-    # Run calibration if enough data collected
+    # Run calibration when enough markets have actuals
     all_mkts = load_all_markets()
-    resolved_count = len([m for m in all_mkts if m["status"] == "resolved"])
-    if resolved_count >= CALIBRATION_MIN:
-        global _cal
+    cal_eligible = len([
+        m for m in all_mkts
+        if m.get("actual_temp") is not None
+        and (m.get("status") == "resolved" or m.get("resolved"))
+    ])
+    if cal_eligible >= CALIBRATION_MIN:
         _cal = run_calibration(all_mkts)
 
     return new_pos, closed, resolved
@@ -1040,6 +1192,9 @@ def run_loop():
     print(f"{'='*55}")
     print(f"  Cities:     {len(LOCATIONS)}")
     print(f"  Balance:    ${BALANCE:,.0f} | Max bet: ${MAX_BET}")
+    print(f"  Risk:       open≤{MAX_OPEN_POSITIONS} | "
+          f"city≤{MAX_OPEN_PER_CITY} | date≤{MAX_OPEN_PER_DATE} | "
+          f"capital≤{MAX_CAPITAL_AT_RISK_PCT:.0%}")
     print(
         f"  Scan:       {SCAN_INTERVAL//60} min | Monitor: {MONITOR_INTERVAL//60} min")
     print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0)")
