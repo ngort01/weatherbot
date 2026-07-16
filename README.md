@@ -8,13 +8,8 @@ No SDK. No black box. Pure Python.
 
 ## Versions
 
-### `bot_v1.py` — Base Bot
-The foundation. Scans 6 US cities, fetches forecasts from NWS using airport station coordinates, finds matching temperature buckets on Polymarket, and enters trades when the market price is below the entry threshold.
-
-No math, no complexity. Just the core logic — good for understanding how the system works.
-
 ### `weatherbet.py` — Full Bot (current)
-Everything in v1, plus:
+The bot features:
 - **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
 - **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
 - **Expected Value** — skips trades where the math doesn't work
