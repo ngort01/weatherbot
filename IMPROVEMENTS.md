@@ -107,10 +107,10 @@ Either way: **calibration of residual error is the product**, not "continuous vs
 
 **Done** (`config.json` + open path `[RISK]` skips):
 
-- [x] Max open positions total — `max_open_positions` (default 10)
+- [x] Max open positions total — `max_open_positions` (default 20)
 - [x] Max open per city — `max_open_per_city` (default 2)
-- [x] Max open per date — `max_open_per_date` (default 4)
-- [x] Max total capital at risk (% of equity = cash + open costs) — `max_capital_at_risk_pct` (default 0.15)
+- [x] Max open per date — `max_open_per_date` (default 6)
+- [x] Max total capital at risk (% of equity = cash + open costs) — `max_capital_at_risk_pct` (default 0.2)
 - [x] Unit tests — `tests/test_portfolio_risk.py`
 
 **Still open:**
@@ -265,7 +265,7 @@ Current-ish defaults:
 - `max_bet: 20`
 - `kelly_fraction: 0.25`
 - `SIGMA_F: 2.0` / `SIGMA_C: 1.2` (code constants)
-- `max_open_positions: 10` / `max_open_per_city: 2` / `max_open_per_date: 4` / `max_capital_at_risk_pct: 0.15`
+- `max_open_positions: 20` / `max_open_per_city: 2` / `max_open_per_date: 6` / `max_capital_at_risk_pct: 0.2`
 
 If you move to probabilistic `p`:
 

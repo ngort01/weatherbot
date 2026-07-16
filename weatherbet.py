@@ -44,10 +44,10 @@ MAX_SLIPPAGE = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL = _cfg.get("scan_interval", 3600)   # every hour
 CALIBRATION_MIN = _cfg.get("calibration_min", 30)
 # Portfolio risk caps (IMPROVEMENTS §3)
-MAX_OPEN_POSITIONS = int(_cfg.get("max_open_positions", 10))
+MAX_OPEN_POSITIONS = int(_cfg.get("max_open_positions", 20))
 MAX_OPEN_PER_CITY = int(_cfg.get("max_open_per_city", 2))
-MAX_OPEN_PER_DATE = int(_cfg.get("max_open_per_date", 4))
-MAX_CAPITAL_AT_RISK_PCT = float(_cfg.get("max_capital_at_risk_pct", 0.15))
+MAX_OPEN_PER_DATE = int(_cfg.get("max_open_per_date", 6))
+MAX_CAPITAL_AT_RISK_PCT = float(_cfg.get("max_capital_at_risk_pct", 0.2))
 # Secret lives in .env — never config.json
 VC_KEY = os.getenv("VC_KEY", _cfg.get("vc_key", ""))
 
