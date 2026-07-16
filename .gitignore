@@ -208,3 +208,6 @@ __marimo__/
 
 # Local bot state / paper trading data
 data/
+
+# Local ops notes (not for the repo)
+OPS.md
