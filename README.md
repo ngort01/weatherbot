@@ -105,6 +105,17 @@ pytest
 
 ---
 
+## Docs
+
+| Doc | For |
+|-----|-----|
+| [`AGENTS.md`](AGENTS.md) | AI agents / contributors — invariants, traps, how to change code safely |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the bot works, data model, dummy bet walkthrough |
+| [`IMPROVEMENTS.md`](IMPROVEMENTS.md) | Backlog and known design issues |
+| [`TESTING_PLAN.md`](TESTING_PLAN.md) | Characterization test philosophy and coverage plan |
+
+---
+
 ## Data Storage
 
 All data is saved to `data/markets/` — one JSON file per market. Each file contains:
