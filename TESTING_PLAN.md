@@ -72,9 +72,9 @@ pytest.ini or pyproject.toml [tool.pytest.ini_options]
 | `norm_cdf` | math | Monotone; `norm_cdf(0)≈0.5`; symmetric tails |
 | `parse_temp_range` | polymarket | `or below`, `or higher`, `between A-B`, `be N°F/C on` → ranges; garbage → `None` |
 | `in_bucket` | polymarket | Range inclusive; zero-width uses `round(forecast)==round(t_low)` |
-| `bucket_prob` | math | Binary middle; CDF edges; **zero-width with match → 1.0** (not continuous 0) |
-| `calc_ev` | math | Formula; price 0/1 → 0; `p=1` cheap ask → large positive EV |
-| `calc_kelly` | math | `p=1` → fraction of bankroll path; clamps; bad prices → 0 |
+| `bucket_prob` | math | Binary middle; CDF edges; **zero-width with match → 1.0** (not continuous 0). Spec: `MODEL.md` |
+| `calc_ev` | math | Formula; price 0/1 → 0; `p=1` cheap ask → large positive EV. Spec: `MODEL.md` |
+| `calc_kelly` | math | `p=1` → fraction of bankroll path; clamps; bad prices → 0. Spec: `MODEL.md` |
 | `bet_size` | math | Cap at `MAX_BET`; scales with balance × kelly |
 
 ### P1 — important (calibration + storage contracts)
@@ -144,7 +144,7 @@ Optional explicit non-goal comment in test file:
 
 ### 5.4 EV / Kelly / size (with current config defaults)
 
-Assume `config.json`: `kelly_fraction=0.25`, `max_bet=20` (assert or skip if config differs).
+Formulas and intent: **`MODEL.md`**. Assume `config.json`: `kelly_fraction=0.25`, `max_bet=20` (assert or skip if config differs).
 
 | Case | Check |
 |------|--------|

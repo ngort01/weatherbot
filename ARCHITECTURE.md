@@ -243,32 +243,17 @@ Design constraints:
 
 ## Math (as implemented)
 
-### Probability — `bucket_prob`
+Full formulas, worked examples, and binary-`p` implications: **`MODEL.md`**.
 
-| Bucket type | Probability |
-|-------------|-------------|
-| Middle / exact (`72–73` or `80`) | **Binary:** forecast in range → `p = 1.0`, else `0.0` |
-| Edge (`or below` / `or higher`) | Normal CDF with σ from calibration (defaults: σ_F=2.0, σ_C=1.2) |
+Short summary:
 
-For a normal “mode” trade (forecast lands in a middle bin), **p is always 1.0**. EV and Kelly look extremely good and usually size to `max_bet`. This is characterized in tests and called out in `IMPROVEMENTS.md` §1 — not accidental, but not true continuous probability either.
+| Step | Behavior today |
+|------|----------------|
+| `bucket_prob` | Middle bins **binary** (`1.0` / `0.0`); edges use normal CDF + σ |
+| `calc_ev` | YES EV at ask; with `p=1` almost always clears `min_ev` |
+| `calc_kelly` / `bet_size` | Fractional Kelly (`kelly_fraction`, default 0.25) then **`max_bet`** |
 
-### EV — `calc_ev`
-
-```text
-EV = p × (1/price − 1) − (1 − p)
-```
-
-With `p = 1` and ask = 0.32: `EV = 1/0.32 − 1 = +2.125` → clears `min_ev`.
-
-### Kelly — `calc_kelly` / `bet_size`
-
-```text
-b  = 1/price − 1
-f* = (p·b − (1−p)) / b
-size = min(f* × kelly_fraction × balance, max_bet)
-```
-
-With `p = 1`, fractional Kelly saturates → almost always **`max_bet`** if cash allows.
+Mode (matched middle-bin) trades effectively size to **`max_bet`**. Product traps if you “fix” continuous CDF: `IMPROVEMENTS.md` §1.
 
 ### Portfolio risk (at open)
 
@@ -318,7 +303,7 @@ Exit reasons: `stop_loss`, `trailing_stop`, `take_profit`, `forecast_changed`, `
 | Module | Responsibility |
 |--------|----------------|
 | `config.py` | `config.json` / `.env`, paths, `LOCATIONS`, strategy knobs |
-| `model.py` | `norm_cdf`, `bucket_prob`, `calc_ev`, `calc_kelly`, `bet_size` |
+| `model.py` | `norm_cdf`, `bucket_prob`, `calc_ev`, `calc_kelly`, `bet_size` — see **`MODEL.md`** |
 | `calibration.py` | MAE/bias from resolved actuals (`_cal` cache) |
 | `risk.py` | Open caps (`portfolio_snapshot`, `risk_limit_reason`) |
 | `forecasts.py` | ECMWF, HRRR, METAR, VC actuals |
@@ -359,15 +344,15 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
 ### Steps
 
 1. **Match** — `in_bucket(72, 72, 73)` → true. Only this bucket is considered.
-2. **Probability** — middle bucket → `bucket_prob` → **`p = 1.0`** (σ unused).
+2. **Probability** — middle bucket → `bucket_prob` → **`p = 1.0`** (σ unused; see `MODEL.md`).
 3. **Filters**
 
    | Check | Result |
    |-------|--------|
    | Volume 12k ≥ min_volume | pass |
    | Hours 36 ∈ [min_hours, max_hours] | pass |
-   | EV = 1/0.32 − 1 = **+2.125** ≥ min_ev | pass |
-   | Kelly → size → **$20** | pass |
+   | EV ≥ min_ev (with `p=1`, ask 0.32 → large positive) | pass |
+   | Kelly → size → **$20** (`max_bet`; Kelly saturates) | pass |
    | Live ask $0.32, spread ≤ max_slippage, ask &lt; max_price | pass |
    | Portfolio caps | pass |
 
@@ -424,7 +409,7 @@ Today’s strategy is essentially:
 
 > My point-forecast bucket is treated as certain (`p=1`). If the book prices that bucket under `max_price` with enough volume and a tight spread, buy up to `max_bet` (subject to risk caps).
 
-That is a **forecast-tracking / favorite-bucket** strategy with risk management — not a full probabilistic market-maker. Continuous `p` + calibrated σ would change which trades fire; see `IMPROVEMENTS.md` §1–2.
+That is a **forecast-tracking / favorite-bucket** strategy with risk management — not a full probabilistic market-maker. Math detail: `MODEL.md`. Continuous `p` + calibrated σ would change which trades fire; see `IMPROVEMENTS.md` §1–2.
 
 ---
 

@@ -3,6 +3,7 @@
 Instructions for AI coding agents (and humans) making changes in this repo.
 
 Deep product/architecture context: **`ARCHITECTURE.md`**.  
+Probability / EV / Kelly math: **`MODEL.md`**.  
 Backlog and known design traps: **`IMPROVEMENTS.md`**.  
 Test philosophy: **`TESTING_PLAN.md`**.
 
@@ -30,6 +31,7 @@ Test philosophy: **`TESTING_PLAN.md`**.
 | `data/calibration.json` | Per city/source σ and bias |
 | `tests/` | Characterization tests (pin **current** behavior) |
 | `ARCHITECTURE.md` | How the system works + dummy bet |
+| `MODEL.md` | Probability, EV, Kelly formulas (as implemented) |
 | `IMPROVEMENTS.md` | What is wrong / next, and traps not to step in |
 | `TESTING_PLAN.md` | What tests should lock and why |
 | `sim_dashboard_repost.html` | Unrelated/legacy dashboard asset — leave alone unless asked |
@@ -65,10 +67,10 @@ Treat these as product rules until the user / IMPROVEMENTS explicitly change the
 2. **Airport stations, not city centers** — `LOCATIONS[*].lat/lon/station` are resolution points. Do not “fix” to downtown coords.
 3. **One position per market file** — `data/markets/{city}_{date}.json`; closed position blocks re-entry.
 4. **Only the forecast-matched bucket is tradable** — scan does not shop other buckets for higher EV.
-5. **Binary middle-bucket probability (today)** — `bucket_prob` returns `1.0` / `0.0` for non-edge ranges. Edge buckets (`-999` / `999`) use normal CDF + σ.
+5. **Binary middle-bucket probability (today)** — `bucket_prob` returns `1.0` / `0.0` for non-edge ranges. Edge buckets (`-999` / `999`) use normal CDF + σ. Formulas: **`MODEL.md`**.
 6. **Early exit ≠ double settle** — if `position.status` is already closed, resolution only annotates `resolved_outcome` / `hold_to_resolution_pnl`; do not credit bankroll again.
 7. **Wins/losses in state** count held-to-resolution settlements, not stop/TP exits.
-8. **Characterization tests document reality** — updating “wrong” math without updating tests and IMPROVEMENTS is a bug.
+8. **Characterization tests document reality** — updating “wrong” math without updating tests, `MODEL.md`, and IMPROVEMENTS is a bug.
 
 ---
 
@@ -85,7 +87,7 @@ These look like bugs; several are deliberate or trap-laden. Details: `IMPROVEMEN
 | Hit live APIs in unit tests | Always mock `requests`; tests must pass offline. |
 | Rewrite into a multi-package framework for purity | Out of scope unless asked; extract only when testing/change cost requires it. |
 
-If you change trading semantics: update **`IMPROVEMENTS.md` status**, **`ARCHITECTURE.md`** if behavior/docs diverge, and **tests** in the same change.
+If you change trading semantics: update **`IMPROVEMENTS.md` status**, **`MODEL.md`** / **`ARCHITECTURE.md`** if behavior/docs diverge, and **tests** in the same change.
 
 ---
 
@@ -134,15 +136,15 @@ See **`ARCHITECTURE.md`** for the dummy bet and exit matrix.
 
 ### When changing behavior
 
-1. Read the relevant section of `ARCHITECTURE.md` + `IMPROVEMENTS.md`.
+1. Read the relevant section of `ARCHITECTURE.md` + `IMPROVEMENTS.md` (and `MODEL.md` for p/EV/Kelly).
 2. Add/adjust **characterization or unit tests first** when possible.
 3. Implement the minimal code change in the relevant `weatherbet/` module.
 4. Run `pytest`.
-5. Note status updates in `IMPROVEMENTS.md` if closing a backlog item.
+5. Note status updates in `IMPROVEMENTS.md` if closing a backlog item; keep `MODEL.md` honest if formulas change.
 
 ### When only documenting
 
-Update the smallest set of docs that stay true. Prefer linking over duplicating long math.
+Update the smallest set of docs that stay true. Prefer linking over duplicating long math — formulas live in **`MODEL.md`**.
 
 ---
 
@@ -192,7 +194,7 @@ Not blockers for small fixes; do not implement unless asked:
 
 | Goal | Start here |
 |------|------------|
-| Probability / EV / Kelly | `weatherbet/model.py` |
+| Probability / EV / Kelly | `weatherbet/model.py` + **`MODEL.md`** |
 | Entry | `weatherbet/entry.py` (`consider_entry`) |
 | Scan / resolve | `weatherbet/scan.py` |
 | Monitor exits | `weatherbet/monitor.py` |
@@ -213,5 +215,5 @@ Not blockers for small fixes; do not implement unless asked:
 - [ ] `pytest` green
 - [ ] No secrets in commits; config vs `.env` boundary respected
 - [ ] Tests updated if characterization surface changed
-- [ ] `IMPROVEMENTS.md` / `ARCHITECTURE.md` touched only when they would otherwise lie
+- [ ] `IMPROVEMENTS.md` / `ARCHITECTURE.md` / `MODEL.md` touched only when they would otherwise lie
 - [ ] Real `data/` paper state not clobbered by tests or experiments

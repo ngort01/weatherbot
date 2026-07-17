@@ -12,12 +12,9 @@ Last updated: 2026-07-16
 
 **Status:** Open — baseline *characterized* in tests (`tests/test_bucket_prob.py`). No product change yet.
 
-**What the code does today:** For regular buckets, `bucket_prob` is binary:
+**What the code does today:** Middle-bin `bucket_prob` is binary (`1.0` / `0.0`); edges use CDF + σ; only the matched bucket is tradable. Full formulas: **`MODEL.md`**.
 
-- forecast in bucket → `p = 1.0`
-- forecast not in bucket → `p = 0.0`
-
-Sigma only matters for edge buckets (`-999` / `999`). Entry only considers the single matched bucket. Consequences:
+Consequences of binary `p`:
 
 - EV math is fake (matched trades always look great)
 - Kelly sizes max out constantly (`p≈1` → fractional Kelly → `max_bet`)

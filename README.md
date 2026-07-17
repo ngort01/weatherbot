@@ -15,8 +15,8 @@ Logic lives under `weatherbet/` (config, model, forecasts, scan, …). Run via `
 The bot features:
 - **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
 - **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
-- **Expected Value** — skips trades where the math doesn't work
-- **Kelly Criterion** — sizes positions based on edge strength
+- **Expected Value** — skips trades where EV is below threshold (see `MODEL.md`)
+- **Kelly Criterion** — fractional Kelly sizing, then `max_bet` (see `MODEL.md`)
 - **Stop-loss + trailing stop** — 20% stop, moves to breakeven at +20%
 - **Slippage filter** — skips markets with spread > $0.03
 - **Self-calibration** — learns forecast accuracy per city over time
@@ -32,8 +32,8 @@ The bot:
 1. Fetches forecasts from ECMWF and HRRR via Open-Meteo (free, no key required)
 2. Gets real-time observations from METAR airport stations
 3. Finds the matching temperature bucket on Polymarket
-4. Calculates Expected Value — only enters if the math is positive
-5. Sizes the position using fractional Kelly Criterion
+4. Calculates Expected Value — only enters if EV ≥ `min_ev` (`MODEL.md`)
+5. Sizes the position with fractional Kelly, capped by `max_bet`
 6. Monitors stops every 10 minutes, full scan every hour
 7. Auto-resolves markets by querying Polymarket API directly
 
