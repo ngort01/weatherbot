@@ -26,7 +26,7 @@ def test_future_end_positive_hours():
         def fromisoformat(cls, s):
             return real_datetime.fromisoformat(s)
 
-    with patch("weatherbet.datetime", FakeDateTime):
+    with patch("weatherbet.polymarket.datetime", FakeDateTime):
         h = wb.hours_to_resolution(end_str)
     assert abs(h - 10.0) < 1e-6
 
@@ -47,5 +47,5 @@ def test_past_end_clamped_to_zero():
         def fromisoformat(cls, s):
             return real_datetime.fromisoformat(s)
 
-    with patch("weatherbet.datetime", FakeDateTime):
+    with patch("weatherbet.polymarket.datetime", FakeDateTime):
         assert wb.hours_to_resolution(end_str) == 0.0

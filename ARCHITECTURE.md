@@ -1,15 +1,19 @@
 # WeatherBet — Architecture
 
-Single-file paper-trading bot for Polymarket **highest daily temperature** markets. It forecasts airport-station highs, matches the market bucket that contains that forecast, sizes a simulated YES buy with EV/Kelly filters, and manages the position until exit or resolution.
+Paper-trading bot for Polymarket **highest daily temperature** markets. It forecasts airport-station highs, matches the market bucket that contains that forecast, sizes a simulated YES buy with EV/Kelly filters, and manages the position until exit or resolution.
+
+Logic lives in the **`weatherbet/` package** (plain modules, no trading SDK). Root `weatherbet.py` is a thin launcher.
 
 **No live orders.** The bot only reads Polymarket Gamma prices and debits/credits a simulated bankroll in `data/state.json`.
 
-Entry point: `weatherbet.py`  
-CLI: `python weatherbet.py [run|scan|status|report]`
+Entry: `python weatherbet.py …` or `python -m weatherbet …`  
+CLI: `run | scan | status | report | reconcile | refresh`
 
 - `run` — continuous loop (hourly full scan that **fills** paper trades + 10‑min monitor)
 - `scan` — **dry-run** preview only: fetch forecasts/markets, print findings and would-be entries; no fills, no state/market writes
-- `status` / `report` — read-only summaries
+- `status` / `report` — read-only summaries (`status` also refreshes portfolio KPIs in `state.json`)
+- `reconcile [--fix]` — audit (or repair) cash vs market files
+- `refresh` — rebuild portfolio summary fields in `state.json` from markets
 
 ---
 
@@ -33,32 +37,30 @@ Airport coordinates matter: NYC → KLGA, Dallas → KDAL, etc. City-center coor
 ## Big picture
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         weatherbet.py (everything)                        │
-│                                                                           │
-│  CLI: run | status | report                                               │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────┐     every ~10 min      ┌──────────────────┐             │
-│  │  run_loop() │ ─────────────────────► │ monitor_positions│             │
-│  │             │     every ~60 min      │  stop / trail /  │             │
-│  │             │ ─────────────────────► │  take-profit     │             │
-│  └──────┬──────┘                        └────────┬─────────┘             │
-│         │ full scan                              │                       │
-│         ▼                                        │                       │
-│  ┌─────────────────────────────────────────────┐ │                       │
-│  │              scan_and_update()                │ │                       │
-│  │  for each of 20 cities × next 4 days:        │ │                       │
-│  │    forecasts → Polymarket event → filters    │ │                       │
-│  │    open / stop / forecast-exit / resolve     │ │                       │
-│  └──────┬───────────────┬───────────────┬───────┘ │                       │
-└─────────┼───────────────┼───────────────┼─────────┼───────────────────────┘
-          │               │               │         │
-          ▼               ▼               ▼         ▼
-   Open-Meteo      Aviation Weather   Gamma API   Visual Crossing
-   ECMWF / HRRR        METAR          markets      actuals (VC_KEY)
-          │               │               │         │
-          └───────────────┴───────┬───────┴─────────┘
+┌──────────────────────────────── weatherbet/ ──────────────────────────────┐
+│  cli.py  (run_loop, scan, status, report, reconcile, refresh)               │
+│         │                                                                   │
+│         ▼                                                                   │
+│  ┌─────────────┐     every ~10 min      ┌──────────────────┐               │
+│  │  run_loop   │ ─────────────────────► │ monitor.py       │               │
+│  │             │     every ~60 min      │  stop / trail /  │               │
+│  │             │ ─────────────────────► │  take-profit     │               │
+│  └──────┬──────┘                        └────────┬─────────┘               │
+│         │ full scan                              │                         │
+│         ▼                                        │                         │
+│  ┌─────────────────────────────────────────────┐ │                         │
+│  │  scan.py — scan_and_update()                │ │                         │
+│  │  for each of 20 cities × next 4 days:       │ │                         │
+│  │    forecasts → Polymarket event → filters   │ │                         │
+│  │    open / stop / forecast-exit / resolve    │ │                         │
+│  └──────┬───────────────┬───────────────┬──────┘ │                         │
+└─────────┼───────────────┼───────────────┼────────┼─────────────────────────┘
+          │               │               │        │
+          ▼               ▼               ▼        ▼
+   Open-Meteo      Aviation Weather   Gamma API  Visual Crossing
+   ECMWF / HRRR        METAR          markets     actuals (VC_KEY)
+          │               │               │        │
+          └───────────────┴───────┬───────┴────────┘
                                   ▼
                     data/state.json          data/markets/{city}_{date}.json
                     data/calibration.json    (forecasts, prices, position, PnL)
@@ -311,20 +313,24 @@ Exit reasons: `stop_loss`, `trailing_stop`, `take_profit`, `forecast_changed`, `
 
 ---
 
-## Module map (`weatherbet.py`)
+## Module map (`weatherbet/`)
 
-| Section | Responsibility |
-|---------|----------------|
-| Config / `LOCATIONS` | Knobs + 20 airport stations |
-| Math | `norm_cdf`, `bucket_prob`, `calc_ev`, `calc_kelly`, `bet_size` |
-| Calibration | MAE/bias from resolved actuals |
-| Portfolio risk | Open caps (`portfolio_snapshot`, `risk_limit_reason`) |
-| Forecasts | ECMWF, HRRR, METAR, VC actuals |
-| Polymarket | Event fetch, parse buckets, resolve |
-| Storage | Per-market JSON + state |
-| `scan_and_update` | Main trading brain |
-| `monitor_positions` | Fast risk exits |
-| `run_loop` / CLI | Orchestration |
+| Module | Responsibility |
+|--------|----------------|
+| `config.py` | `config.json` / `.env`, paths, `LOCATIONS`, strategy knobs |
+| `model.py` | `norm_cdf`, `bucket_prob`, `calc_ev`, `calc_kelly`, `bet_size` |
+| `calibration.py` | MAE/bias from resolved actuals (`_cal` cache) |
+| `risk.py` | Open caps (`portfolio_snapshot`, `risk_limit_reason`) |
+| `forecasts.py` | ECMWF, HRRR, METAR, VC actuals |
+| `polymarket.py` | Event fetch, parse buckets, resolve |
+| `storage.py` | Per-market JSON under `data/markets/` |
+| `state.py` | `state.json`, reconcile, portfolio KPIs |
+| `entry.py` | `consider_entry` filters + paper signal |
+| `scan.py` | `scan_and_update` / `scan_preview` |
+| `monitor.py` | Fast risk exits (stop / trail / TP) |
+| `report.py` | `status` / `report` printing |
+| `cli.py` | `run_loop` + CLI dispatch |
+| `weatherbet.py` (root) | Thin launcher only |
 
 ---
 

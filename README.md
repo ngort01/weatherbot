@@ -8,7 +8,10 @@ No SDK. No black box. Pure Python.
 
 ## Versions
 
-### `weatherbet.py` — Full Bot (current)
+### Package `weatherbet/` — Full Bot (current)
+
+Logic lives under `weatherbet/` (config, model, forecasts, scan, …). Run via `python weatherbet.py` or `python -m weatherbet`.
+
 The bot features:
 - **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
 - **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)

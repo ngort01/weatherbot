@@ -33,32 +33,32 @@ def test_portfolio_snapshot_counts(wb):
     assert snap["capital"] == 30.0
 
 
-def test_risk_limit_max_open_positions(wb, monkeypatch):
-    monkeypatch.setattr(wb, "MAX_OPEN_POSITIONS", 2)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_CITY", 99)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_DATE", 99)
-    monkeypatch.setattr(wb, "MAX_CAPITAL_AT_RISK_PCT", 1.0)
+def test_risk_limit_max_open_positions(wb, patch_config):
+    patch_config("MAX_OPEN_POSITIONS", 2)
+    patch_config("MAX_OPEN_PER_CITY", 99)
+    patch_config("MAX_OPEN_PER_DATE", 99)
+    patch_config("MAX_CAPITAL_AT_RISK_PCT", 1.0)
     book = {"total": 2, "by_city": {}, "by_date": {}, "capital": 40.0}
     reason = wb.risk_limit_reason("miami", "2026-07-18", 20.0, 9000.0, book)
     assert reason is not None
     assert "max open positions" in reason
 
 
-def test_risk_limit_max_per_city(wb, monkeypatch):
-    monkeypatch.setattr(wb, "MAX_OPEN_POSITIONS", 99)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_CITY", 1)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_DATE", 99)
-    monkeypatch.setattr(wb, "MAX_CAPITAL_AT_RISK_PCT", 1.0)
+def test_risk_limit_max_per_city(wb, patch_config):
+    patch_config("MAX_OPEN_POSITIONS", 99)
+    patch_config("MAX_OPEN_PER_CITY", 1)
+    patch_config("MAX_OPEN_PER_DATE", 99)
+    patch_config("MAX_CAPITAL_AT_RISK_PCT", 1.0)
     book = {"total": 1, "by_city": {"nyc": 1}, "by_date": {}, "capital": 20.0}
     assert wb.risk_limit_reason("nyc", "2026-07-18", 20.0, 9000.0, book)
     assert wb.risk_limit_reason("miami", "2026-07-18", 20.0, 9000.0, book) is None
 
 
-def test_risk_limit_max_per_date(wb, monkeypatch):
-    monkeypatch.setattr(wb, "MAX_OPEN_POSITIONS", 99)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_CITY", 99)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_DATE", 2)
-    monkeypatch.setattr(wb, "MAX_CAPITAL_AT_RISK_PCT", 1.0)
+def test_risk_limit_max_per_date(wb, patch_config):
+    patch_config("MAX_OPEN_POSITIONS", 99)
+    patch_config("MAX_OPEN_PER_CITY", 99)
+    patch_config("MAX_OPEN_PER_DATE", 2)
+    patch_config("MAX_CAPITAL_AT_RISK_PCT", 1.0)
     book = {
         "total": 2,
         "by_city": {"nyc": 1, "london": 1},
@@ -69,11 +69,11 @@ def test_risk_limit_max_per_date(wb, monkeypatch):
     assert wb.risk_limit_reason("miami", "2026-07-17", 20.0, 9000.0, book) is None
 
 
-def test_risk_limit_capital_at_risk(wb, monkeypatch):
-    monkeypatch.setattr(wb, "MAX_OPEN_POSITIONS", 99)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_CITY", 99)
-    monkeypatch.setattr(wb, "MAX_OPEN_PER_DATE", 99)
-    monkeypatch.setattr(wb, "MAX_CAPITAL_AT_RISK_PCT", 0.15)
+def test_risk_limit_capital_at_risk(wb, patch_config):
+    patch_config("MAX_OPEN_POSITIONS", 99)
+    patch_config("MAX_OPEN_PER_CITY", 99)
+    patch_config("MAX_OPEN_PER_DATE", 99)
+    patch_config("MAX_CAPITAL_AT_RISK_PCT", 0.15)
     # equity = balance + capital = 8500 + 1500 = 10000; 15% = 1500 already at cap
     book = {"total": 5, "by_city": {}, "by_date": {}, "capital": 1500.0}
     assert wb.risk_limit_reason("nyc", "2026-07-16", 20.0, 8500.0, book)

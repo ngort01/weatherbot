@@ -32,8 +32,13 @@ def wb(monkeypatch, tmp_path):
     """
     Import weatherbet with data/calibration paths redirected to tmp_path
     so tests never touch real paper-trading state.
+
+    Paths and risk limits live in weatherbet.config; the package re-exports
+    them. Patch both so functions (config.X) and tests (wb.X) stay in sync.
     """
     import weatherbet as mod
+    from weatherbet import config
+    from weatherbet import calibration
 
     data = tmp_path / "data"
     markets = data / "markets"
@@ -41,10 +46,32 @@ def wb(monkeypatch, tmp_path):
     cal = data / "calibration.json"
     state = data / "state.json"
 
-    monkeypatch.setattr(mod, "DATA_DIR", data)
-    monkeypatch.setattr(mod, "MARKETS_DIR", markets)
-    monkeypatch.setattr(mod, "CALIBRATION_FILE", cal)
-    monkeypatch.setattr(mod, "STATE_FILE", state)
-    monkeypatch.setattr(mod, "_cal", {})
+    for name, val in [
+        ("DATA_DIR", data),
+        ("MARKETS_DIR", markets),
+        ("CALIBRATION_FILE", cal),
+        ("STATE_FILE", state),
+    ]:
+        monkeypatch.setattr(config, name, val)
+        monkeypatch.setattr(mod, name, val)
+
+    empty_cal = {}
+    monkeypatch.setattr(calibration, "_cal", empty_cal)
+    monkeypatch.setattr(mod, "_cal", empty_cal)
 
     return mod
+
+
+@pytest.fixture
+def patch_config(monkeypatch, wb):
+    """
+    Helper fixture: return a callable to patch a config constant on both
+    weatherbet.config and the package namespace (for risk/entry tests).
+    """
+    from weatherbet import config
+
+    def _patch(name, value):
+        monkeypatch.setattr(config, name, value)
+        monkeypatch.setattr(wb, name, value)
+
+    return _patch

@@ -103,8 +103,8 @@ def test_consider_entry_max_price(wb):
     assert "max_price" in reason
 
 
-def test_consider_entry_risk_cap(wb, monkeypatch):
-    monkeypatch.setattr(wb, "MAX_OPEN_POSITIONS", 0)
+def test_consider_entry_risk_cap(wb, patch_config):
+    patch_config("MAX_OPEN_POSITIONS", 0)
     outcomes = [_outcome(72, 73)]
     signal, reason = wb.consider_entry(
         "chicago",

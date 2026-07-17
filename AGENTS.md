@@ -11,7 +11,7 @@ Test philosophy: **`TESTING_PLAN.md`**.
 ## What this project is
 
 - **Paper-trading bot** for Polymarket *highest temperature* markets.
-- **One main module:** `weatherbet.py` (~1.2k lines). No package layout, no trading SDK.
+- **Package layout:** `weatherbet/` modules + thin `weatherbet.py` launcher. No trading SDK.
 - Reads forecasts (Open-Meteo, METAR) + Polymarket Gamma via `requests`; writes JSON under `data/`.
 - **Does not place live orders.** Do not add live trading unless explicitly asked; if ever, follow `IMPROVEMENTS.md` §8–9 (official Polymarket `py-sdk`, env secrets, kill switch).
 
@@ -21,10 +21,11 @@ Test philosophy: **`TESTING_PLAN.md`**.
 
 | Path | Role |
 |------|------|
-| `weatherbet.py` | All bot logic (config load, math, I/O, scan, monitor, CLI) |
-| `config.json` | Strategy params (committed). Loaded **at import**. |
+| `weatherbet.py` | Thin CLI launcher (`python weatherbet.py …`) |
+| `weatherbet/` | Package: config, model, forecasts, polymarket, storage, state, risk, entry, scan, monitor, report, cli |
+| `config.json` | Strategy params (committed). Loaded **at import** by `weatherbet.config`. |
 | `.env` / `.env.example` | Secrets only (`VC_KEY`). Never commit real keys. |
-| `data/state.json` | Paper bankroll / W-L (runtime; gitignored patterns apply) |
+| `data/state.json` | Paper bankroll / portfolio KPIs (runtime; gitignored) |
 | `data/markets/*.json` | One file per `{city}_{date}` market record |
 | `data/calibration.json` | Per city/source σ and bias |
 | `tests/` | Characterization tests (pin **current** behavior) |
@@ -90,9 +91,9 @@ If you change trading semantics: update **`IMPROVEMENTS.md` status**, **`ARCHITE
 
 ## Import / config gotchas (break tests if ignored)
 
-- `weatherbet.py` at import: `load_dotenv()`, reads `config.json`, sets module-level constants (`MAX_BET`, `MIN_EV`, …), creates `data/` dirs.
-- Constants are **bound at import** — tests that need different limits should `monkeypatch` module attributes, not only edit a temp config after import.
-- Storage tests use the `wb` fixture in `tests/conftest.py` (redirects `DATA_DIR` / `MARKETS_DIR` / `STATE_FILE` / `CALIBRATION_FILE` to `tmp_path`). Prefer that over writing into real `data/`.
+- `weatherbet.config` at import: `load_dotenv()`, reads `config.json`, sets constants (`MAX_BET`, `MIN_EV`, …), creates `data/` dirs. Package `__init__` re-exports them for `import weatherbet as wb`.
+- Constants live on **`weatherbet.config`** — code reads `config.MAX_BET` etc. Tests that need different limits should use the `patch_config` fixture (or patch both `weatherbet.config` and the package alias), not only edit a temp config after import.
+- Storage tests use the `wb` fixture in `tests/conftest.py` (redirects paths on `config` + package; resets `calibration._cal`). Prefer that over writing into real `data/`.
 - **Never run experimental code against production paper state** without isolating paths; real `data/` may hold multi-day paper history.
 
 ---
@@ -122,7 +123,7 @@ See **`ARCHITECTURE.md`** for the dummy bet and exit matrix.
 
 ## Coding conventions
 
-- **Match existing style** in `weatherbet.py`: plain functions, section banners, minimal deps, no type-system rewrite.
+- **Match existing style** in `weatherbet/`: plain functions, minimal deps, no type-system rewrite. Put new code in the module that already owns that concern.
 - Prefer **small, testable pure functions** for new math/risk logic; keep network at the edges.
 - Logs use tags like `[BUY]`, `[SKIP]`, `[RISK]`, `[STOP]`, `[CAL]` — keep that pattern for greppability.
 - User-facing docs: complete sentences; no drive-by markdown trees the user did not ask for.
@@ -135,7 +136,7 @@ See **`ARCHITECTURE.md`** for the dummy bet and exit matrix.
 
 1. Read the relevant section of `ARCHITECTURE.md` + `IMPROVEMENTS.md`.
 2. Add/adjust **characterization or unit tests first** when possible.
-3. Implement the minimal code change in `weatherbet.py` (or extract only what you must).
+3. Implement the minimal code change in the relevant `weatherbet/` module.
 4. Run `pytest`.
 5. Note status updates in `IMPROVEMENTS.md` if closing a backlog item.
 
@@ -191,15 +192,18 @@ Not blockers for small fixes; do not implement unless asked:
 
 | Goal | Start here |
 |------|------------|
-| Probability / EV / Kelly | `bucket_prob`, `calc_ev`, `calc_kelly`, `bet_size` |
-| Entry / exit trading rules | `scan_and_update`, `monitor_positions` |
-| Risk caps | `portfolio_snapshot`, `risk_limit_reason`, `config.json` |
-| Forecast sources | `get_ecmwf`, `get_hrrr`, `get_metar`, `take_forecast_snapshot` |
-| Markets / buckets | `get_polymarket_event`, `parse_temp_range`, `in_bucket` |
-| Resolution / actuals | `check_market_resolved`, `get_actual_temp` |
-| Calibration | `run_calibration`, `get_sigma`, `snapshot_source_temp` |
-| Persistence | `load_market` / `save_market` / `load_state` / `new_market` |
-| Cities / stations | `LOCATIONS`, `TIMEZONES` |
+| Probability / EV / Kelly | `weatherbet/model.py` |
+| Entry | `weatherbet/entry.py` (`consider_entry`) |
+| Scan / resolve | `weatherbet/scan.py` |
+| Monitor exits | `weatherbet/monitor.py` |
+| Risk caps | `weatherbet/risk.py` + `config.json` |
+| Forecast sources | `weatherbet/forecasts.py` |
+| Markets / buckets | `weatherbet/polymarket.py` |
+| Calibration | `weatherbet/calibration.py` |
+| Market files | `weatherbet/storage.py` |
+| state.json / KPIs | `weatherbet/state.py` |
+| Cities / stations / limits | `weatherbet/config.py` |
+| CLI | `weatherbet/cli.py` + `weatherbet.py` launcher |
 
 ---
 

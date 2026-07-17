@@ -68,15 +68,15 @@ def _fake_resolved_production(city, actual, ecmwf=None, hrrr=None):
     }
 
 
-def test_run_calibration_skips_below_min(wb, monkeypatch):
-    monkeypatch.setattr(wb, "CALIBRATION_MIN", 30)
+def test_run_calibration_skips_below_min(wb, patch_config):
+    patch_config("CALIBRATION_MIN", 30)
     markets = [_fake_resolved_legacy("nyc", 80, "ecmwf", 82) for _ in range(10)]
     cal = wb.run_calibration(markets)
     assert "nyc_ecmwf" not in cal
 
 
-def test_run_calibration_updates_legacy_shape(wb, monkeypatch):
-    monkeypatch.setattr(wb, "CALIBRATION_MIN", 5)
+def test_run_calibration_updates_legacy_shape(wb, patch_config):
+    patch_config("CALIBRATION_MIN", 5)
     markets = [_fake_resolved_legacy("nyc", 80, "ecmwf", 82) for _ in range(5)]
     cal = wb.run_calibration(markets)
     assert cal["nyc_ecmwf"]["sigma"] == 2.0
@@ -84,8 +84,8 @@ def test_run_calibration_updates_legacy_shape(wb, monkeypatch):
     assert cal["nyc_ecmwf"]["bias"] == 2.0  # forecast - actual
 
 
-def test_run_calibration_production_snapshot_shape(wb, monkeypatch):
-    monkeypatch.setattr(wb, "CALIBRATION_MIN", 3)
+def test_run_calibration_production_snapshot_shape(wb, patch_config):
+    patch_config("CALIBRATION_MIN", 3)
     markets = [
         _fake_resolved_production("nyc", 80, ecmwf=82, hrrr=81) for _ in range(3)
     ]
@@ -96,9 +96,9 @@ def test_run_calibration_production_snapshot_shape(wb, monkeypatch):
     assert cal["nyc_hrrr"]["bias"] == 1.0
 
 
-def test_run_calibration_accepts_status_resolved(wb, monkeypatch):
+def test_run_calibration_accepts_status_resolved(wb, patch_config):
     """status=='resolved' is enough (no separate resolved flag required)."""
-    monkeypatch.setattr(wb, "CALIBRATION_MIN", 2)
+    patch_config("CALIBRATION_MIN", 2)
     markets = [{
         "city": "nyc",
         "status": "resolved",
@@ -109,8 +109,8 @@ def test_run_calibration_accepts_status_resolved(wb, monkeypatch):
     assert cal["nyc_ecmwf"]["sigma"] == 1.0
 
 
-def test_run_calibration_requires_actual_temp(wb, monkeypatch):
-    monkeypatch.setattr(wb, "CALIBRATION_MIN", 1)
+def test_run_calibration_requires_actual_temp(wb, patch_config):
+    patch_config("CALIBRATION_MIN", 1)
     markets = [{
         "city": "nyc",
         "status": "resolved",
