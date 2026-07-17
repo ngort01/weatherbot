@@ -84,7 +84,8 @@ Create `config.json` in the project folder:
   "kelly_fraction": 0.25,
   "max_slippage": 0.03,
   "scan_interval": 3600,
-  "calibration_min": 30,
+  "monitor_interval": 600,
+  "calibration_min": 20,
   "vc_key": "YOUR_VISUAL_CROSSING_KEY"
 }
 ```

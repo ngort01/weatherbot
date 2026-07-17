@@ -25,8 +25,9 @@ MIN_ASK_DEPTH_USD = float(_cfg.get("min_ask_depth_usd", 25.0))
 # Stop: entry - max(entry * stop_loss_pct, min_stop_width)
 STOP_LOSS_PCT = float(_cfg.get("stop_loss_pct", 0.20))
 MIN_STOP_WIDTH = float(_cfg.get("min_stop_width", 0.05))
-SCAN_INTERVAL = _cfg.get("scan_interval", 3600)
-CALIBRATION_MIN = _cfg.get("calibration_min", 30)
+SCAN_INTERVAL = int(_cfg.get("scan_interval", 3600))
+MONITOR_INTERVAL = int(_cfg.get("monitor_interval", 600))
+CALIBRATION_MIN = int(_cfg.get("calibration_min", 30))
 MAX_OPEN_POSITIONS = int(_cfg.get("max_open_positions", 20))
 MAX_OPEN_PER_CITY = int(_cfg.get("max_open_per_city", 2))
 MAX_OPEN_PER_DATE = int(_cfg.get("max_open_per_date", 6))
@@ -81,5 +82,3 @@ TIMEZONES = {
 
 MONTHS = ["january", "february", "march", "april", "may", "june",
           "july", "august", "september", "october", "november", "december"]
-
-MONITOR_INTERVAL = 600  # monitor positions every 10 minutes

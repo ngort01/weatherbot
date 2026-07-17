@@ -111,7 +111,7 @@ run_loop
   │       maybe open (filters + risk caps)
   │     resolve via Gamma; actuals via Visual Crossing
   │     maybe run_calibration
-  └─ else every MONITOR_INTERVAL (10m): monitor_positions
+  └─ else every MONITOR_INTERVAL (config monitor_interval, default 10m): monitor_positions
         stop / trailing / take-profit only
 ```
 

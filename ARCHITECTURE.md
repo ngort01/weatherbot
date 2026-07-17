@@ -73,7 +73,7 @@ Airport coordinates matter: NYC → KLGA, Dallas → KDAL, etc. City-center coor
 | Cadence    | Interval                         | Function              | What it does                                              |
 |-----------|-----------------------------------|-----------------------|-----------------------------------------------------------|
 | Full scan | `scan_interval` (default 3600s)   | `scan_and_update()`   | All cities, forecasts, open/close, resolution, calibration |
-| Monitor   | hard-coded 600s                   | `monitor_positions()` | Open positions only: stop-loss, trailing stop, take-profit |
+| Monitor   | `monitor_interval` (default 600s) | `monitor_positions()` | Open positions only: stop-loss, trailing stop, take-profit |
 
 ```text
 time ──► [full scan]──[mon]──[mon]──[mon]──[mon]──[mon]──[full scan]──…
@@ -174,7 +174,7 @@ Keys `{city}_{source}` (e.g. `chicago_hrrr`):
 - `bias` — mean signed error
 - `n` — sample count
 
-Updated by `run_calibration` when enough markets have actuals (`calibration_min`, default 30). Used for **edge** buckets and intended for a fuller probability model later; middle-bucket trades today barely use it (see Math).
+Updated by `run_calibration` when enough markets have actuals (`calibration_min`, default 20). Used for **edge** buckets and intended for a fuller probability model later; middle-bucket trades today barely use it (see Math).
 
 ### Config — `config.json` + `.env`
 
@@ -434,8 +434,9 @@ That is a **forecast-tracking / favorite-bucket** strategy with honest residual 
 | `min_hours` / `max_hours` | 2 / 72 | Horizon window |
 | `kelly_fraction` | 0.25 | Fraction of full Kelly |
 | Portfolio caps | 20 / 2 / 6 / 20% | Concentration limits |
-| `calibration_min` | 30 | Samples before city/source σ updates |
+| `calibration_min` | 20 | Samples before city/source σ updates |
 | `scan_interval` | 3600 | Full scan period (seconds) |
+| `monitor_interval` | 600 | Stop/TP poll period (seconds) |
 
 ---
 

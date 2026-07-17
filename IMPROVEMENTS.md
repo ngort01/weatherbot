@@ -83,7 +83,7 @@ Binary is **max overconfidence**. Naive continuous with default σ is **structur
 
 **Still open:**
 
-- [ ] Lower `calibration_min` once quality data exists (or hierarchical defaults earlier)
+- [x] Lower `calibration_min` to 20 (2026-07-17); hierarchical defaults still open
 - [x] Apply calibrated σ **and bias** to every probability estimate (partition model — 2026-07-17)
 - [ ] Separate calibration by horizon (D+0 vs D+1 vs D+2)
 - [x] Report model-implied mode mass vs market mode price (`status` / `report` — 2026-07-17)
