@@ -2,7 +2,7 @@
 
 Brutal backlog of upgrades. Don't forget these just because paper PnL looked cute for a week.
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 ---
 
@@ -10,17 +10,16 @@ Last updated: 2026-07-16
 
 ### 1. Probability model — don't "fix" it with a naive continuous CDF
 
-**Status:** Open — baseline *characterized* in tests (`tests/test_bucket_prob.py`). No product change yet.
+**Status:** Done (2026-07-17) — Option B partition model shipped.
 
-**What the code does today:** Middle-bin `bucket_prob` is binary (`1.0` / `0.0`); edges use CDF + σ; only the matched bucket is tradable. Full formulas: **`MODEL.md`**.
+**What the code does today:** `bucket_prob` uses Gaussian residual mass over `resolution_bin` (half-degree edges for exact °F, expanded ranges, consistent tails). Bias applied as μ = forecast − bias. Only the **forecast-matched** bucket is still tradable. Full formulas: **`MODEL.md`**.
 
-Consequences of binary `p`:
+**Still open under §1:**
 
-- EV math is fake (matched trades always look great)
-- Kelly sizes max out constantly (`p≈1` → fractional Kelly → `max_bet`)
-- Calibration barely affects the trades you actually take
+- [ ] EV-shop non-matched buckets across the event partition
+- [ ] Horizon-dependent σ (see §2)
 
-**That is not an accident with zero upside.** Two real constraints kill the naive rewrite:
+Historical traps (still valid as design notes):
 
 #### Trap A — zero-width buckets
 
@@ -58,24 +57,15 @@ A "statistically pure" bot with uncalibrated σ=2 would conclude **every middle 
 
 Binary is **max overconfidence**. Naive continuous with default σ is **structural underconfidence vs how these books are priced** (or correctly skeptical only *if* true residual error really is ~2°F).
 
-#### What to do instead
+#### What was implemented (Option B)
 
-**Do not** paste continuous CDF over raw `[t_low, t_high]` and ship.
+- [x] Resolution-aware bins via `resolution_bin` (exact → half-unit; ranges → `[a-0.5, b+0.5)`; tails half-lines)
+- [x] Continuous `bucket_prob` for all bucket types; `event_bucket_probs` for full-event tests
+- [x] Calibrated σ + bias at entry (`get_sigma` / `get_bias`)
+- [x] Keep match filter (forecast-matched only); EV/Kelly use real `p`
+- [x] `min_ev` lowered to `0.05` so tight-σ modes can trade; uncalibrated 1° favorites at 35¢ still skip
 
-Pick an honest design:
-
-1. **Probabilistic path (real EV/Kelly):**
-   - Map every outcome to a resolution-aware bin (exact °F → half-unit or official rounding rule; between-ranges → correct inclusive integers; tails → half-lines)
-   - Score the **full partition** so probs sum ~1 across the event
-   - Use horizon- and city-dependent **calibrated** σ + bias — not global `SIGMA_F = 2.0`
-   - Only then compare model `p` to market price; accept that trade set may shrink or shift to tails if markets are overconfident
-
-2. **Match-style path (current product, honest about it):**
-   - Keep "enter the bin my point forecast lands in" as a filter
-   - Stop pretending Kelly/EV mean much when `p∈{0,1}`
-   - Size with fixed/fractional rules and risk caps, not fake certainty
-
-Either way: **calibration of residual error is the product**, not "continuous vs binary" as a slogan.
+**Do not** regress to continuous CDF over raw equal bounds (Trap A) or expect binary-era fill rates under default σ=2 (Trap B).
 
 ### 2. Make calibration actually work (this is the real math core)
 
@@ -94,9 +84,10 @@ Either way: **calibration of residual error is the product**, not "continuous vs
 **Still open:**
 
 - [ ] Lower `calibration_min` once quality data exists (or hierarchical defaults earlier)
-- [ ] Apply calibrated σ **and bias** to every probability estimate (needs §1 product decision — middle bins still ignore σ)
+- [x] Apply calibrated σ **and bias** to every probability estimate (partition model — 2026-07-17)
 - [ ] Separate calibration by horizon (D+0 vs D+1 vs D+2)
 - [ ] Report model-implied mode mass vs market mode price
+- [ ] Optional: use RMSE (or MAE→Gaussian conversion) as σ scale instead of raw MAE
 
 ### 3. Portfolio / correlation risk
 
@@ -257,7 +248,7 @@ Background process is fine, but:
 
 Current-ish defaults:
 
-- `min_ev: 0.1`
+- `min_ev: 0.05` (was 0.1 under binary p)
 - `max_price: 0.45`
 - `max_bet: 20`
 - `kelly_fraction: 0.25`
@@ -274,13 +265,14 @@ If you move to probabilistic `p`:
 
 ## Priority order (if we actually ship upgrades)
 
-1. **Decide strategy honesty:** probabilistic book vs match-style filter — then implement that, not a slogan CDF
-2. ~~Wire resolution actuals + residual calibration plumbing~~ **Partial — actuals + sigma/bias file work; not applied to middle-bin `p` yet**
-3. **If probabilistic:** resolution-aware bins + full-event scoring; only then EV/Kelly mean something
+1. ~~**Decide strategy honesty:** probabilistic book vs match-style filter~~ **Done — Option B partition + match filter (2026-07-17)**
+2. ~~Wire resolution actuals + residual calibration plumbing~~ **Done — actuals + σ/bias applied at entry**
+3. ~~**If probabilistic:** resolution-aware bins~~ **Done**; full-event EV shopping still open
 4. ~~Portfolio caps / risk limits~~ **Partial — hard caps done; correlation haircut open**
 5. Source blending after residuals are real
 6. Resolution source audit (defines bins + avoids station heems)
 7. Paper → live via `py-sdk` only after resolved track record
+8. Horizon-split σ; mode-mass vs market report
 
 ---
 
@@ -320,4 +312,11 @@ If you move to probabilistic `p`:
 - Resolve + backfill station `actual_temp`; calibration reads production snaps; stores bias
 - Early-exit markets: Polymarket `resolved_outcome` + `hold_to_resolution_pnl` (annotate only; bankroll unchanged)
 
-If future-you is reading this: pick an honest probability product, calibrate residuals, then size. Don't paste CDF and call it fixed, regard.
+## Shipped (2026-07-17)
+
+- Option B: `resolution_bin` + continuous partition `bucket_prob`; bias at entry
+- `event_bucket_probs` helper; tests rewritten for partition semantics
+- `min_ev` default `0.05` (was `0.1`) for non-dead paper under realistic `p`
+- Docs: `MODEL.md`, `AGENTS.md`, this file
+
+If future-you is reading this: partition `p` is live; next leverage is horizon calibration and whether to shop non-matched bins. Don't regress to raw equal-bound CDF.

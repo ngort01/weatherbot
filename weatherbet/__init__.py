@@ -13,7 +13,8 @@ from weatherbet.config import (  # noqa: F401
     LOCATIONS, TIMEZONES, MONTHS, MONITOR_INTERVAL,
 )
 from weatherbet.model import (  # noqa: F401
-    norm_cdf, bucket_prob, calc_ev, calc_kelly, bet_size,
+    norm_cdf, resolution_bin, bucket_prob, event_bucket_probs,
+    calc_ev, calc_kelly, bet_size,
 )
 from weatherbet.polymarket import (  # noqa: F401
     parse_temp_range, hours_to_resolution, in_bucket,
@@ -24,7 +25,7 @@ from weatherbet.forecasts import (  # noqa: F401
     get_ecmwf, get_hrrr, get_metar, get_actual_temp, take_forecast_snapshot,
 )
 from weatherbet.calibration import (  # noqa: F401
-    load_cal, get_sigma, snapshot_source_temp, run_calibration, _cal,
+    load_cal, get_sigma, get_bias, snapshot_source_temp, run_calibration, _cal,
 )
 from weatherbet.storage import (  # noqa: F401
     market_path, load_market, save_market, load_all_markets, new_market,

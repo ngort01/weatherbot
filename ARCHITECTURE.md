@@ -243,17 +243,17 @@ Design constraints:
 
 ## Math (as implemented)
 
-Full formulas, worked examples, and binary-`p` implications: **`MODEL.md`**.
+Full formulas, worked examples, and partition-`p` implications: **`MODEL.md`**.
 
 Short summary:
 
 | Step | Behavior today |
 |------|----------------|
-| `bucket_prob` | Middle bins **binary** (`1.0` / `0.0`); edges use normal CDF + σ |
-| `calc_ev` | YES EV at ask; with `p=1` almost always clears `min_ev` |
+| `bucket_prob` | Gaussian mass over `resolution_bin` (all buckets); μ = forecast − bias |
+| `calc_ev` | YES EV at ask; positive only when model `p` beats price enough for `min_ev` |
 | `calc_kelly` / `bet_size` | Fractional Kelly (`kelly_fraction`, default 0.25) then **`max_bet`** |
 
-Mode (matched middle-bin) trades effectively size to **`max_bet`**. Product traps if you “fix” continuous CDF: `IMPROVEMENTS.md` §1.
+Matched-bucket only; size follows real edge (often below `max_bet` when `p` is modest). Design notes: `IMPROVEMENTS.md` §1.
 
 ### Portfolio risk (at open)
 
@@ -303,7 +303,7 @@ Exit reasons: `stop_loss`, `trailing_stop`, `take_profit`, `forecast_changed`, `
 | Module | Responsibility |
 |--------|----------------|
 | `config.py` | `config.json` / `.env`, paths, `LOCATIONS`, strategy knobs |
-| `model.py` | `norm_cdf`, `bucket_prob`, `calc_ev`, `calc_kelly`, `bet_size` — see **`MODEL.md`** |
+| `model.py` | `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size` — see **`MODEL.md`** |
 | `calibration.py` | MAE/bias from resolved actuals (`_cal` cache) |
 | `risk.py` | Open caps (`portfolio_snapshot`, `risk_limit_reason`) |
 | `forecasts.py` | ECMWF, HRRR, METAR, VC actuals |
@@ -344,15 +344,15 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
 ### Steps
 
 1. **Match** — `in_bucket(72, 72, 73)` → true. Only this bucket is considered.
-2. **Probability** — middle bucket → `bucket_prob` → **`p = 1.0`** (σ unused; see `MODEL.md`).
+2. **Probability** — matched bucket → `bucket_prob` → continuous partition mass under calibrated σ/bias (see `MODEL.md`).
 3. **Filters**
 
    | Check | Result |
    |-------|--------|
    | Volume 12k ≥ min_volume | pass |
    | Hours 36 ∈ [min_hours, max_hours] | pass |
-   | EV ≥ min_ev (with `p=1`, ask 0.32 → large positive) | pass |
-   | Kelly → size → **$20** (`max_bet`; Kelly saturates) | pass |
+   | EV ≥ min_ev (partition `p` vs ask 0.32; needs tight enough σ) | pass if calibrated |
+   | Kelly → size → up to **$20** (`max_bet`) | pass |
    | Live ask $0.32, spread ≤ max_slippage, ask &lt; max_price | pass |
    | Portfolio caps | pass |
 
@@ -369,8 +369,10 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
    Log style:
 
    ```text
-   [BUY] Chicago D+1 2026-07-17 | 72.0-73.0F | $0.320 | EV +2.12 | $20.00 (HRRR)
+   [BUY] Chicago D+1 2026-07-17 | 72.0-73.0F | $0.320 | EV +… | $… (HRRR)
    ```
+
+   (Illustrative fill amounts assume EV/Kelly clear gates; under default σ=2 many mode books skip.)
 
 5. **Possible endings**
 
@@ -402,14 +404,14 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
                       │
                       ▼
             buy YES if cheap enough
-            under binary p=1 model
+            under partition residual model
 ```
 
 Today’s strategy is essentially:
 
-> My point-forecast bucket is treated as certain (`p=1`). If the book prices that bucket under `max_price` with enough volume and a tight spread, buy up to `max_bet` (subject to risk caps).
+> Buy YES on the single bucket my point forecast lands in, with `p` = residual Gaussian mass for that bin. Enter only if EV vs ask clears `min_ev`, price/volume/spread pass, and portfolio caps allow.
 
-That is a **forecast-tracking / favorite-bucket** strategy with risk management — not a full probabilistic market-maker. Math detail: `MODEL.md`. Continuous `p` + calibrated σ would change which trades fire; see `IMPROVEMENTS.md` §1–2.
+That is a **forecast-tracking / favorite-bucket** strategy with honest residual probability — not multi-bucket EV shopping. Math detail: `MODEL.md`.
 
 ---
 
@@ -417,9 +419,9 @@ That is a **forecast-tracking / favorite-bucket** strategy with risk management 
 
 | Key | Typical | Effect |
 |-----|---------|--------|
-| `min_ev` | 0.10 | Almost always true when p=1 and ask &lt; max_price |
+| `min_ev` | 0.05 | Gate on model edge; strict vs uncalibrated wide σ |
 | `max_price` | 0.45 | Never buy expensive favorites |
-| `max_bet` | 20 | Effective size under binary p |
+| `max_bet` | 20 | Hard size cap (Kelly may bind first when edge is thin) |
 | `max_slippage` | 0.03 | Reject wide books |
 | `min_hours` / `max_hours` | 2 / 72 | Horizon window |
 | `kelly_fraction` | 0.25 | Fraction of full Kelly |

@@ -103,7 +103,7 @@ python weatherbet.py refresh   # rebuild portfolio KPIs in state.json from marke
 
 ## Tests
 
-Characterization tests pin **current** bot behavior (including binary middle-bucket probabilities). See `TESTING_PLAN.md`.
+Characterization tests pin **current** bot behavior (partition residual probabilities). See `TESTING_PLAN.md` and `MODEL.md`.
 
 ```bash
 pip install -r requirements-dev.txt

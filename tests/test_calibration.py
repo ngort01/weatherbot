@@ -17,6 +17,15 @@ def test_get_sigma_from_cal_cache(wb):
     assert wb.get_sigma("nyc", "hrrr") == 1.25
 
 
+def test_get_bias_default_zero(wb):
+    assert wb.get_bias("nyc", "ecmwf") == 0.0
+
+
+def test_get_bias_from_cal_cache(wb):
+    wb._cal["nyc_hrrr"] = {"sigma": 1.25, "bias": -0.8, "n": 40}
+    assert wb.get_bias("nyc", "hrrr") == -0.8
+
+
 def test_load_cal_missing_file(wb):
     assert wb.load_cal() == {}
 

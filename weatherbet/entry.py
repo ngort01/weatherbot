@@ -3,7 +3,7 @@ import requests
 
 from weatherbet import config
 from weatherbet.model import bucket_prob, calc_ev, calc_kelly, bet_size
-from weatherbet.calibration import get_sigma
+from weatherbet.calibration import get_sigma, get_bias
 from weatherbet.polymarket import in_bucket
 from weatherbet.risk import risk_limit_reason
 
@@ -54,8 +54,10 @@ def consider_entry(
     if volume < config.MIN_VOLUME:
         return None, f"volume {volume:.0f} < min {config.MIN_VOLUME}"
 
-    sigma = get_sigma(city_slug, best_source or "ecmwf")
-    p = bucket_prob(forecast_temp, t_low, t_high, sigma)
+    src = best_source or "ecmwf"
+    sigma = get_sigma(city_slug, src)
+    bias = get_bias(city_slug, src)
+    p = bucket_prob(forecast_temp, t_low, t_high, sigma, bias)
 
     # Provisional size from bankroll/kelly; final EV/shares use entry price
     # (live bestAsk when available — never NO price from outcomePrices).
@@ -81,6 +83,7 @@ def consider_entry(
         "forecast_temp": forecast_temp,
         "forecast_src":  best_source,
         "sigma":         sigma,
+        "bias":          bias,
         "opened_at":     opened_at,
         "status":        "open",
         "pnl":           None,

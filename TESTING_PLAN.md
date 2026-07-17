@@ -2,7 +2,7 @@
 
 **Goal:** Lock **current** behavior with automated tests so later IMPROVEMENTS are deliberate diffs, not silent drift.
 
-**Scope:** Baseline / characterization only. Do **not** change trading logic to “match better math” while writing these tests. Document what the code does today — including binary `p` and dead calibration paths.
+**Scope:** Characterization of **current** product behavior. Do not silently flip strategy in tests without updating `MODEL.md` / `IMPROVEMENTS.md`. Today: partition residual `p` (Option B); calibration σ/bias applied at entry.
 
 **Out of scope (later):** portfolio caps, probabilistic `bucket_prob`, live SDK, rewriting architecture for purity (only extract if testing is otherwise painful).
 
@@ -258,7 +258,7 @@ Avoid large restructure in the testing phase.
 
 | When you change… | Test action |
 |------------------|-------------|
-| Portfolio caps | Add new tests; leave binary `bucket_prob` tests as-is |
+| Portfolio caps | Covered; partition `bucket_prob` tests in `test_bucket_prob.py` |
 | Wire `actual_temp` on resolve | Update calibration tests from “dead” → “updates”; keep old fixture if useful as regression on field names |
 | New discrete `bucket_prob` | **New** tests (or new function); update old characterization tests in the **same PR** with explicit “behavior change” notes |
 | Match-style honesty (drop fake Kelly) | Replace EV/Kelly entry tests with new sizing policy tests |
@@ -287,9 +287,9 @@ Never “quietly” edit characterization tests to green continuous-σ=2 without
 
 **Review checklist:**
 
-- [ ] Zero-width → `p=1` when in bucket (documents current design)
+- [x] Zero-width → positive half-unit mass (partition model)
 - [ ] Middle bin ignores sigma
-- [ ] `p=1` + typical ask → large EV / max bet path with current config
+- [x] Partition `p` + EV/Kelly path under realistic σ (see `test_consider_entry`)
 - [ ] No network
 
 ---
@@ -299,7 +299,7 @@ Never “quietly” edit characterization tests to green continuous-σ=2 without
 You can say the baseline is done when:
 
 1. `pytest` is one command and green on main.
-2. A stranger can read `test_bucket_prob.py` and learn that middle buckets are binary and zero-width is not continuous CDF.
+2. A stranger can read `test_bucket_prob.py` and learn resolution bins + partition mass (including exact °F half-units).
 3. Changing `bucket_prob` or Kelly math **fails CI/local tests** until tests are updated on purpose.
 4. IMPROVEMENTS work can start without fear of silent regression on parse/math/storage.
 

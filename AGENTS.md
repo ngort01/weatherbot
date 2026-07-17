@@ -67,7 +67,7 @@ Treat these as product rules until the user / IMPROVEMENTS explicitly change the
 2. **Airport stations, not city centers** — `LOCATIONS[*].lat/lon/station` are resolution points. Do not “fix” to downtown coords.
 3. **One position per market file** — `data/markets/{city}_{date}.json`; closed position blocks re-entry.
 4. **Only the forecast-matched bucket is tradable** — scan does not shop other buckets for higher EV.
-5. **Binary middle-bucket probability (today)** — `bucket_prob` returns `1.0` / `0.0` for non-edge ranges. Edge buckets (`-999` / `999`) use normal CDF + σ. Formulas: **`MODEL.md`**.
+5. **Partition probability (Option B)** — `bucket_prob` uses a Gaussian residual over resolution-aware bins (`resolution_bin`: half-degree edges so exact °F bins have mass). σ + bias from calibration when present. Still only the **forecast-matched** bucket is tradable. Formulas: **`MODEL.md`**.
 6. **Early exit ≠ double settle** — if `position.status` is already closed, resolution only annotates `resolved_outcome` / `hold_to_resolution_pnl`; do not credit bankroll again.
 7. **Wins/losses in state** count held-to-resolution settlements, not stop/TP exits.
 8. **Characterization tests document reality** — updating “wrong” math without updating tests, `MODEL.md`, and IMPROVEMENTS is a bug.
@@ -80,10 +80,10 @@ These look like bugs; several are deliberate or trap-laden. Details: `IMPROVEMEN
 
 | Tempting change | Why not (or not naively) |
 |-----------------|---------------------------|
-| Continuous `Φ` over raw `[t_low, t_high]` for all buckets | Zero-width buckets (`be 80°F` → `(80,80)`) get **p=0** forever. Need discrete resolution bins. |
-| Ship continuous CDF with default `SIGMA_F=2` | Mode bin mass ~20%; bot stops buying typical 30–45¢ favorites — strategy flip, not a free fix. |
-| Make Kelly/EV “honest” without new `p` model | With `p∈{0,1}`, EV/Kelly mostly force `max_bet`. Either keep match-style sizing honestly, or rebuild partition probs. |
-| Apply calibration σ to middle buckets only | Incomplete without bias, horizon splits, and partition scoring. |
+| Continuous `Φ` over raw `[t_low, t_high]` without half-unit expand | Zero-width buckets (`be 80°F` → `(80,80)`) get **p=0**. Use `resolution_bin` (implemented). |
+| Expect binary-era fill rates under default σ=2 | Mode mass ~20% on 1° bins; many 30–45¢ favorites fail `min_ev` until calibrated σ tightens — intentional. |
+| Shop other buckets for higher EV | Still **matched-bucket only** unless product decision changes. |
+| Apply σ without bias / wrong residual sign | Bias is mean(forecast − actual); μ = forecast − bias. |
 | Hit live APIs in unit tests | Always mock `requests`; tests must pass offline. |
 | Rewrite into a multi-package framework for purity | Out of scope unless asked; extract only when testing/change cost requires it. |
 
@@ -150,8 +150,8 @@ Update the smallest set of docs that stay true. Prefer linking over duplicating 
 
 ## Testing expectations
 
-- Suite is **characterization-first**: assert what the code does *now*, including binary `p`.
-- Mark or comment quirks that IMPROVEMENTS plans to change (e.g. reference §1).
+- Suite is **characterization-first**: assert what the code does *now*, including partition `p`.
+- Mark or comment quirks that IMPROVEMENTS still plans to change (horizon σ, bucket shopping).
 - Pure functions first; mock network; use `wb` fixture for disk.
 - Config-dependent sizing tests depend on committed `config.json` values — pin or patch explicitly.
 - Do not expand scope into full `scan_and_update` integration tests unless needed; they are heavy and network-shaped.
@@ -182,8 +182,8 @@ Do not print or commit contents of `.env`.
 
 Not blockers for small fixes; do not implement unless asked:
 
-1. Probabilistic partition model vs honest match-style sizing (`IMPROVEMENTS` §1).
-2. Calibration actually driving middle-bin `p` / sizing (§2).
+1. ~~Probabilistic partition model~~ **done (matched-bucket only)**; full-event EV shopping still open.
+2. Horizon-split calibration; RMSE vs MAE as Gaussian scale (`IMPROVEMENTS` §2).
 3. Correlation haircut beyond hard open caps (§3).
 4. Source blending, better entry filters, fee-aware paper fills (§4–7).
 5. Live trading (§8–9) — explicit go-live criteria exist; do not soft-launch.

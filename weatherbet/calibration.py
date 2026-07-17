@@ -18,6 +18,14 @@ def get_sigma(city_slug, source="ecmwf"):
         return _cal[key]["sigma"]
     return config.SIGMA_F if config.LOCATIONS[city_slug]["unit"] == "F" else config.SIGMA_C
 
+
+def get_bias(city_slug, source="ecmwf"):
+    """Mean signed residual (forecast − actual). Default 0 when uncalibrated."""
+    key = f"{city_slug}_{source}"
+    if key in _cal:
+        return float(_cal[key].get("bias", 0.0) or 0.0)
+    return 0.0
+
 def snapshot_source_temp(snap, source):
     """
     Extract a source temperature from a forecast snapshot.

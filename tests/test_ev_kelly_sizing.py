@@ -32,11 +32,22 @@ def test_calc_ev_bad_prices():
     assert wb.calc_ev(0.5, -0.1) == 0.0
 
 
-def test_reference_continuous_mode_negative_ev_at_market_favorite():
-    """Trap B reference: ~19.7% model mass at 35¢ is deep negative EV (not live p)."""
-    p = 0.197
+def test_partition_one_degree_mode_negative_ev_at_market_favorite():
+    """σ=2 exact-bin mass ~19.7% at 35¢ is deep negative EV (live partition p)."""
+    p = wb.bucket_prob(80, 80, 80, sigma=2.0)
+    assert 0.19 < p < 0.20
     ev = wb.calc_ev(p, 0.35)
     assert ev < -0.4
+
+
+def test_calc_kelly_partial_p_below_max_fraction():
+    # p=0.4, price=0.3 → full kelly = (0.4*b - 0.6)/b with b=1/0.3-1
+    k = wb.calc_kelly(0.4, 0.3)
+    b = 1.0 / 0.3 - 1.0
+    full = (0.4 * b - 0.6) / b
+    expected = round(min(max(0.0, full) * wb.KELLY_FRACTION, 1.0), 4)
+    assert k == expected
+    assert 0.0 < k < wb.KELLY_FRACTION
 
 
 def test_calc_kelly_p_one():
