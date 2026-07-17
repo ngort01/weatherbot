@@ -93,6 +93,7 @@ python weatherbet.py status    # balance and open positions
 python weatherbet.py report    # full breakdown of all resolved markets
 python weatherbet.py reconcile # audit state.json cash vs market files
 python weatherbet.py reconcile --fix  # rewrite balance if they drift
+python weatherbet.py refresh   # rebuild portfolio KPIs in state.json from markets
 ```
 
 ---

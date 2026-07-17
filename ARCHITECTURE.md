@@ -104,18 +104,49 @@ time ──► [full scan]──[mon]──[mon]──[mon]──[mon]──[mon
 
 ### Bankroll — `data/state.json`
 
+Cash ledger fields are updated on open/close/settle. Portfolio summary fields are **rebuilt from `data/markets/*.json`** on each full scan, monitor close, `status`, `refresh`, or `reconcile --fix` (market files stay source of truth for trades).
+
 ```json
 {
   "balance": 10000.0,
   "starting_balance": 10000.0,
+  "peak_balance": 10000.0,
   "total_trades": 0,
   "wins": 0,
   "losses": 0,
-  "peak_balance": 10000.0
+  "updated_at": null,
+  "realized_pnl": 0.0,
+  "closed_count": 0,
+  "open_count": 0,
+  "open_capital": 0.0,
+  "equity": 10000.0,
+  "return_pct": 0.0,
+  "drawdown_pct": 0.0,
+  "exits": {},
+  "bucket_outcomes": {"win": 0, "loss": 0, "pending": 0},
+  "hold_vs_exit": {
+    "annotated": 0,
+    "exit_pnl_sum": 0.0,
+    "hold_pnl_sum": 0.0,
+    "hold_minus_exit": 0.0
+  },
+  "actuals_count": 0
 }
 ```
 
-`wins` / `losses` count **held-to-resolution** settlements only, not stop/TP exits.
+| Field | Meaning |
+|-------|---------|
+| `balance` / `peak_balance` | Paper cash and high-water mark |
+| `wins` / `losses` | **Held-to-resolution** only (not stop/TP/forecast exits) |
+| `total_trades` | Open + closed positions in market files |
+| `realized_pnl` | Sum of closed `position.pnl` |
+| `equity` | Cash + open cost (open marked at cost) |
+| `return_pct` | Equity vs `starting_balance` |
+| `drawdown_pct` | Cash vs `peak_balance` |
+| `exits` | Per `close_reason`: `{n, pnl}` |
+| `bucket_outcomes` | Polymarket bucket win/loss/pending (includes early exits once annotated) |
+| `hold_vs_exit` | Counterfactual sum: hold-to-resolution PnL vs early-exit PnL |
+| `actuals_count` | Markets with `actual_temp` filled |
 
 ### Per market — `data/markets/{city}_{date}.json`
 
