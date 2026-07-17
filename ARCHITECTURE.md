@@ -219,8 +219,10 @@ Risk and trade knobs live in `config.json`. Secrets (`VC_KEY`) live in `.env`, n
               │  kelly → size ≥ $0.50        │
               │  size ≤ max_bet              │
               │  re-fetch bestAsk/bestBid    │
+              │  ask ≥ min_price             │
               │  spread ≤ max_slippage       │
               │  ask < max_price             │
+              │  liquidity ≥ min_ask_depth   │
               │  portfolio risk caps         │
               └──────────────┬───────────────┘
                              ▼
@@ -228,7 +230,9 @@ Risk and trade knobs live in `config.json`. Secrets (`VC_KEY`) live in `.env`, n
               │ PAPER BUY                    │
               │  balance -= cost             │
               │  position.status = "open"    │
-              │  stop = entry × 0.80         │
+              │  stop = entry − max(         │
+              │    entry×stop_loss_pct,      │
+              │    min_stop_width)           │
               └──────────────────────────────┘
 ```
 
@@ -273,7 +277,7 @@ Skips log as `[RISK] ...`.
 ```text
 OPEN
   │
-  ├─ monitor every 10m ──► stop @ 80% of entry
+  ├─ monitor every 10m ──► stop @ entry − max(pct, min_width)
   │                      ► trail to breakeven if mark ≥ entry × 1.20
   │                      ► take-profit by horizon:
   │                           ≥48h left → bid ≥ 0.75
@@ -353,7 +357,8 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
    | Hours 36 ∈ [min_hours, max_hours] | pass |
    | EV ≥ min_ev (partition `p` vs ask 0.32; needs tight enough σ) | pass if calibrated |
    | Kelly → size → up to **$20** (`max_bet`) | pass |
-   | Live ask $0.32, spread ≤ max_slippage, ask &lt; max_price | pass |
+   | Live ask $0.32 (≥ min_price), spread ≤ max_slippage, ask &lt; max_price | pass |
+   | Liquidity ≥ min_ask_depth_usd when reported | pass |
    | Portfolio caps | pass |
 
 4. **Paper fill**
@@ -362,7 +367,7 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
    entry_price = 0.32
    cost        = 20.00
    shares      = 20 / 0.32 = 62.50
-   stop_price  = 0.32 × 0.80 = 0.256
+   stop_price  = 0.32 − max(0.32×0.20, 0.05) = 0.256
    balance     = 10000 − 20 = 9980
    ```
 
@@ -421,6 +426,9 @@ That is a **forecast-tracking / favorite-bucket** strategy with honest residual 
 |-----|---------|--------|
 | `min_ev` | 0.05 | Gate on model edge; strict vs uncalibrated wide σ |
 | `max_price` | 0.45 | Never buy expensive favorites |
+| `min_price` | 0.08 | Never buy penny / stub asks |
+| `min_ask_depth_usd` | 25 | Min Gamma liquidity when reported (0 = off) |
+| `stop_loss_pct` / `min_stop_width` | 0.20 / 0.05 | Stop = entry − max(pct×entry, width) |
 | `max_bet` | 20 | Hard size cap (Kelly may bind first when edge is thin) |
 | `max_slippage` | 0.03 | Reject wide books |
 | `min_hours` / `max_hours` | 2 / 72 | Horizon window |

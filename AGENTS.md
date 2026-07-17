@@ -115,7 +115,7 @@ run_loop
         stop / trailing / take-profit only
 ```
 
-Entry filters (all must pass): volume, hours window, matched bucket, EV, min size, re-fetched ask/spread/slippage, `max_price`, portfolio risk.
+Entry filters (all must pass): volume, hours window, matched bucket, EV, min size, re-fetched ask/spread/slippage, `min_price` / `max_price`, optional Gamma liquidity depth, portfolio risk. Stop = entry − max(entry×stop_loss_pct, min_stop_width).
 
 Portfolio caps (`config.json`): `max_open_positions`, `max_open_per_city`, `max_open_per_date`, `max_capital_at_risk_pct`.
 

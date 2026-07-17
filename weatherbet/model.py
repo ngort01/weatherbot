@@ -86,3 +86,22 @@ def bet_size(kelly, balance):
     """Dollar stake: kelly × balance, capped at max_bet. See MODEL.md."""
     raw = kelly * balance
     return round(min(raw, config.MAX_BET), 2)
+
+
+def compute_stop_price(entry, stop_pct=None, min_width=None):
+    """
+    Initial stop below entry: entry − max(entry × stop_pct, min_width).
+
+    Percentage-only stops (e.g. −20%) leave sub-cent room on cheap books and
+    get shaken out by bid noise. min_width enforces a minimum price distance
+    (default from config.MIN_STOP_WIDTH). Result is clamped at 0.
+    """
+    if entry is None:
+        return None
+    e = float(entry)
+    if e <= 0:
+        return 0.0
+    pct = float(stop_pct if stop_pct is not None else config.STOP_LOSS_PCT)
+    floor = float(min_width if min_width is not None else config.MIN_STOP_WIDTH)
+    width = max(e * pct, floor)
+    return round(max(e - width, 0.0), 4)

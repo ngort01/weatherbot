@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import requests
 
 from weatherbet import config
+from weatherbet.model import compute_stop_price
 from weatherbet.storage import load_all_markets, save_market
 from weatherbet.state import load_state, refresh_state_stats
 from weatherbet.polymarket import hours_to_resolution
@@ -48,7 +49,9 @@ def monitor_positions():
             continue
 
         entry = pos["entry_price"]
-        stop = pos.get("stop_price", entry * 0.80)
+        stop = pos.get("stop_price")
+        if stop is None:
+            stop = compute_stop_price(entry)
         city_name = config.LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
 
         # Hours left to resolution
@@ -67,6 +70,7 @@ def monitor_positions():
         if current_price >= entry * 1.20 and stop < entry:
             pos["stop_price"] = entry
             pos["trailing_activated"] = True
+            stop = entry
             print(
                 f"  [TRAILING] {city_name} {mkt['date']} — stop moved to breakeven ${entry:.3f}")
 

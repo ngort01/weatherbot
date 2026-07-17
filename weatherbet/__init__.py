@@ -5,8 +5,9 @@ Public API mirrors the former monolithic weatherbet.py module so tests and
 scripts can `import weatherbet as wb`.
 """
 from weatherbet.config import (  # noqa: F401
-    BALANCE, MAX_BET, MIN_EV, MAX_PRICE, MIN_VOLUME, MIN_HOURS, MAX_HOURS,
-    KELLY_FRACTION, MAX_SLIPPAGE, SCAN_INTERVAL, CALIBRATION_MIN,
+    BALANCE, MAX_BET, MIN_EV, MAX_PRICE, MIN_PRICE, MIN_VOLUME, MIN_HOURS, MAX_HOURS,
+    KELLY_FRACTION, MAX_SLIPPAGE, MIN_ASK_DEPTH_USD, STOP_LOSS_PCT, MIN_STOP_WIDTH,
+    SCAN_INTERVAL, CALIBRATION_MIN,
     MAX_OPEN_POSITIONS, MAX_OPEN_PER_CITY, MAX_OPEN_PER_DATE,
     MAX_CAPITAL_AT_RISK_PCT, VC_KEY, SIGMA_F, SIGMA_C,
     DATA_DIR, STATE_FILE, MARKETS_DIR, CALIBRATION_FILE,
@@ -14,7 +15,7 @@ from weatherbet.config import (  # noqa: F401
 )
 from weatherbet.model import (  # noqa: F401
     norm_cdf, resolution_bin, bucket_prob, event_bucket_probs,
-    calc_ev, calc_kelly, bet_size,
+    calc_ev, calc_kelly, bet_size, compute_stop_price,
 )
 from weatherbet.polymarket import (  # noqa: F401
     parse_temp_range, hours_to_resolution, in_bucket,

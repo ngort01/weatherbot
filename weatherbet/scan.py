@@ -7,6 +7,7 @@ import requests
 from weatherbet import config
 from weatherbet import calibration
 from weatherbet.calibration import get_sigma, run_calibration
+from weatherbet.model import compute_stop_price
 from weatherbet.forecasts import take_forecast_snapshot, get_actual_temp
 from weatherbet.polymarket import (
     get_polymarket_event, parse_event_outcomes, hours_to_resolution,
@@ -41,9 +42,12 @@ def scan_preview():
     print(f"  Paper balance (unchanged): ${balance:,.2f}")
     print(f"  Open positions (book):     {book['total']} | "
           f"capital at risk ${book['capital']:,.2f}")
-    print(f"  Filters: min_ev={config.MIN_EV} max_price={config.MAX_PRICE} "
+    print(f"  Filters: min_ev={config.MIN_EV} "
+          f"price=[{config.MIN_PRICE},{config.MAX_PRICE}) "
           f"min_vol={config.MIN_VOLUME} hours=[{config.MIN_HOURS},{config.MAX_HOURS}] "
-          f"max_bet=${config.MAX_BET} max_slip={config.MAX_SLIPPAGE}")
+          f"max_bet=${config.MAX_BET} max_slip={config.MAX_SLIPPAGE} "
+          f"min_depth=${config.MIN_ASK_DEPTH_USD} "
+          f"stop=max({config.STOP_LOSS_PCT:.0%},{config.MIN_STOP_WIDTH})")
     print()
 
     for city_slug, loc in config.LOCATIONS.items():
@@ -316,13 +320,15 @@ def scan_and_update():
                 if current_price is not None:
                     current_price = o.get("bid", current_price)  # sell at bid
                     entry = pos["entry_price"]
-                    # 20% stop by default
-                    stop = pos.get("stop_price", entry * 0.80)
+                    stop = pos.get("stop_price")
+                    if stop is None:
+                        stop = compute_stop_price(entry)
 
                     # Trailing: if up 20%+ — move stop to breakeven
                     if current_price >= entry * 1.20 and stop < entry:
                         pos["stop_price"] = entry
                         pos["trailing_activated"] = True
+                        stop = entry
 
                     # Check stop
                     if current_price <= stop:

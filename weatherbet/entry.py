@@ -2,10 +2,25 @@
 import requests
 
 from weatherbet import config
-from weatherbet.model import bucket_prob, calc_ev, calc_kelly, bet_size
+from weatherbet.model import (
+    bucket_prob, calc_ev, calc_kelly, bet_size, compute_stop_price,
+)
 from weatherbet.calibration import get_sigma, get_bias
 from weatherbet.polymarket import in_bucket
 from weatherbet.risk import risk_limit_reason
+
+
+def _liquidity_usd(mdata):
+    """Parse Gamma market liquidity if present; else None."""
+    if not mdata:
+        return None
+    raw = mdata.get("liquidityNum", mdata.get("liquidity"))
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def consider_entry(
@@ -90,8 +105,9 @@ def consider_entry(
         "exit_price":    None,
         "close_reason":  None,
         "closed_at":     None,
-        "stop_price":    round(provisional_price * 0.80, 4),
+        "stop_price":    compute_stop_price(provisional_price),
         "book_source":   "yes_mid",  # upgraded to "clob" after live fetch
+        "liquidity_usd": None,
     }
 
     if fetch_live_book:
@@ -104,19 +120,37 @@ def consider_entry(
             real_ask = float(mdata.get("bestAsk", signal["entry_price"]))
             real_bid = float(mdata.get("bestBid", signal["bid_at_entry"]))
             real_spread = round(real_ask - real_bid, 4)
-            if real_spread > config.MAX_SLIPPAGE or real_ask >= config.MAX_PRICE:
-                return None, (
-                    f"real ask ${real_ask:.3f} spread ${real_spread:.3f}"
-                )
             if real_ask <= 0:
                 return None, "invalid live ask"
+            if real_ask < config.MIN_PRICE:
+                return None, (
+                    f"ask ${real_ask:.3f} < min_price {config.MIN_PRICE}"
+                )
+            if real_ask >= config.MAX_PRICE:
+                return None, (
+                    f"real ask ${real_ask:.3f} >= max_price {config.MAX_PRICE}"
+                )
+            if real_spread > config.MAX_SLIPPAGE:
+                return None, (
+                    f"real ask ${real_ask:.3f} spread ${real_spread:.3f}"
+                    f" > max_slippage {config.MAX_SLIPPAGE}"
+                )
+            liq = _liquidity_usd(mdata)
+            signal["liquidity_usd"] = liq
+            if config.MIN_ASK_DEPTH_USD > 0 and liq is not None:
+                need = max(float(signal["cost"]), config.MIN_ASK_DEPTH_USD)
+                if liq < need:
+                    return None, (
+                        f"liquidity ${liq:.0f} < min depth "
+                        f"${need:.0f}"
+                    )
             signal["entry_price"] = real_ask
             signal["bid_at_entry"] = real_bid
             signal["spread"] = real_spread
             signal["shares"] = round(signal["cost"] / real_ask, 2)
             signal["ev"] = round(calc_ev(signal["p"], real_ask), 4)
             signal["kelly"] = round(calc_kelly(signal["p"], real_ask), 4)
-            signal["stop_price"] = round(real_ask * 0.80, 4)
+            signal["stop_price"] = compute_stop_price(real_ask)
             signal["book_source"] = "clob"
         except Exception as e:
             # No trustworthy ask — do not pretend NO-price is a buy price
@@ -129,12 +163,23 @@ def consider_entry(
     entry = signal["entry_price"]
     if entry <= 0 or entry >= 1:
         return None, "invalid entry price"
-    if signal["ev"] < config.MIN_EV:
-        return None, f"EV {signal['ev']:+.4f} < min {config.MIN_EV}"
+    if entry < config.MIN_PRICE:
+        return None, (
+            f"ask ${entry:.3f} < min_price {config.MIN_PRICE}"
+        )
     if entry >= config.MAX_PRICE:
         return None, (
             f"ask ${entry:.3f} >= max_price {config.MAX_PRICE}"
         )
+    spread = signal.get("spread")
+    if spread is not None and spread > config.MAX_SLIPPAGE:
+        return None, (
+            f"spread ${spread:.3f} > max_slippage {config.MAX_SLIPPAGE}"
+        )
+    if signal["ev"] < config.MIN_EV:
+        return None, f"EV {signal['ev']:+.4f} < min {config.MIN_EV}"
+
+    signal["stop_price"] = compute_stop_price(entry)
 
     risk_skip = risk_limit_reason(
         city_slug, date_str, signal["cost"], balance, book

@@ -17,7 +17,8 @@ The bot features:
 - **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
 - **Expected Value** — skips trades where EV is below threshold (see `MODEL.md`)
 - **Kelly Criterion** — fractional Kelly sizing, then `max_bet` (see `MODEL.md`)
-- **Stop-loss + trailing stop** — 20% stop, moves to breakeven at +20%
+- **Stop-loss + trailing stop** — stop = entry − max(20% of entry, 5¢); trail to breakeven at +20%
+- **Min price / depth** — skip asks below `min_price` and thin Gamma liquidity when reported
 - **Slippage filter** — skips markets with spread > $0.03
 - **Self-calibration** — learns forecast accuracy per city over time
 - **Full data storage** — every forecast snapshot, trade, and resolution saved to JSON
@@ -73,6 +74,10 @@ Create `config.json` in the project folder:
   "max_bet": 20.0,
   "min_ev": 0.05,
   "max_price": 0.45,
+  "min_price": 0.08,
+  "min_ask_depth_usd": 25.0,
+  "stop_loss_pct": 0.20,
+  "min_stop_width": 0.05,
   "min_volume": 2000,
   "min_hours": 2.0,
   "max_hours": 72.0,

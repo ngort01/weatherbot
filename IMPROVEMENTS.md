@@ -123,15 +123,21 @@ Blending only pays after residuals are honest; otherwise you're averaging garbag
 
 ### 5. Better entry filters
 
-Current filters are fine but incomplete.
+**Status:** Partial (2026-07-17) — price floor, spread, liquidity, absolute stop width.
 
-**Add:**
+**Done:**
 
-- Min liquidity / depth at ask (not just volume)
-- Skip if orderbook is thin / fake mid
-- Avoid ultra-narrow buckets when forecast uncertainty > bucket width (only meaningful once σ is real)
-- Don't enter if market already heavily repriced toward your forecast
-- Note: scan path still treats `outcomePrices` like bid/ask; real bid/ask is only re-fetched at entry — thin-book risk is real
+- [x] `min_price` (default 0.08) — skip penny / stub asks (Tel‑Aviv-class)
+- [x] Spread still gated by `max_slippage` on live CLOB (and final signal when spread known)
+- [x] `min_ask_depth_usd` — when Gamma reports `liquidity`/`liquidityNum`, require ≥ max(cost, floor); missing liquidity does not skip
+- [x] Stop = `entry − max(entry × stop_loss_pct, min_stop_width)` (`compute_stop_price`); not %‑only
+
+**Still open:**
+
+- [ ] True ask-side depth (CLOB levels), not only Gamma aggregate liquidity
+- [ ] Avoid ultra-narrow buckets when forecast uncertainty > bucket width (only meaningful once σ is real)
+- [ ] Don't enter if market already heavily repriced toward your forecast
+- [ ] Note: scan path still treats `outcomePrices` like bid/ask for display; live path re-fetches CLOB
 
 ### 6. Resolution source audit
 

@@ -119,6 +119,123 @@ def test_consider_entry_max_price(wb, patch_config):
     assert "max_price" in reason
 
 
+def test_consider_entry_min_price(wb, patch_config):
+    """Penny asks (Tel‑Aviv-class) are rejected even with huge model EV."""
+    from weatherbet import calibration
+    calibration._cal["chicago_hrrr"] = {"sigma": 1.0, "bias": 0.0, "n": 40}
+    wb._cal["chicago_hrrr"] = calibration._cal["chicago_hrrr"]
+
+    outcomes = [_outcome(72, 73, yes=0.02, no=0.98)]
+    signal, reason = wb.consider_entry(
+        "chicago",
+        "2026-07-17",
+        outcomes,
+        forecast_temp=72,
+        best_source="hrrr",
+        hours=36.0,
+        balance=10_000.0,
+        book=_empty_book(),
+        fetch_live_book=False,
+    )
+    assert signal is None
+    assert reason is not None and "min_price" in reason
+
+
+def test_consider_entry_sets_absolute_stop_width(wb, patch_config):
+    from weatherbet import calibration
+    calibration._cal["chicago_hrrr"] = {"sigma": 1.0, "bias": 0.0, "n": 40}
+    wb._cal["chicago_hrrr"] = calibration._cal["chicago_hrrr"]
+
+    outcomes = [_outcome(72, 73, yes=0.32, no=0.68, volume=12000)]
+    signal, reason = wb.consider_entry(
+        "chicago",
+        "2026-07-17",
+        outcomes,
+        forecast_temp=72,
+        best_source="hrrr",
+        hours=36.0,
+        balance=10_000.0,
+        book=_empty_book(),
+        fetch_live_book=False,
+    )
+    assert reason is None, reason
+    assert signal["stop_price"] == wb.compute_stop_price(0.32)
+    assert signal["stop_price"] == 0.256
+
+
+def test_consider_entry_live_book_min_price_and_depth(wb, patch_config, monkeypatch):
+    from weatherbet import calibration
+    import weatherbet.entry as entry_mod
+
+    calibration._cal["chicago_hrrr"] = {"sigma": 1.0, "bias": 0.0, "n": 40}
+    wb._cal["chicago_hrrr"] = calibration._cal["chicago_hrrr"]
+
+    outcomes = [_outcome(72, 73, yes=0.32, no=0.68, volume=12000)]
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def _get_penny(url, timeout=None):
+        return _Resp({"bestAsk": 0.02, "bestBid": 0.01, "liquidityNum": 5000})
+
+    monkeypatch.setattr(entry_mod.requests, "get", _get_penny)
+    signal, reason = wb.consider_entry(
+        "chicago",
+        "2026-07-17",
+        outcomes,
+        forecast_temp=72,
+        best_source="hrrr",
+        hours=36.0,
+        balance=10_000.0,
+        book=_empty_book(),
+        fetch_live_book=True,
+    )
+    assert signal is None
+    assert "min_price" in reason
+
+    def _get_thin(url, timeout=None):
+        return _Resp({"bestAsk": 0.30, "bestBid": 0.29, "liquidityNum": 5})
+
+    monkeypatch.setattr(entry_mod.requests, "get", _get_thin)
+    signal, reason = wb.consider_entry(
+        "chicago",
+        "2026-07-17",
+        outcomes,
+        forecast_temp=72,
+        best_source="hrrr",
+        hours=36.0,
+        balance=10_000.0,
+        book=_empty_book(),
+        fetch_live_book=True,
+    )
+    assert signal is None
+    assert "liquidity" in reason or "depth" in reason
+
+    def _get_ok(url, timeout=None):
+        return _Resp({"bestAsk": 0.30, "bestBid": 0.29, "liquidityNum": 500})
+
+    monkeypatch.setattr(entry_mod.requests, "get", _get_ok)
+    signal, reason = wb.consider_entry(
+        "chicago",
+        "2026-07-17",
+        outcomes,
+        forecast_temp=72,
+        best_source="hrrr",
+        hours=36.0,
+        balance=10_000.0,
+        book=_empty_book(),
+        fetch_live_book=True,
+    )
+    assert reason is None, reason
+    assert signal["entry_price"] == 0.30
+    assert signal["stop_price"] == wb.compute_stop_price(0.30)
+    assert signal["liquidity_usd"] == 500.0
+
+
 def test_consider_entry_skips_negative_ev_at_wide_sigma(wb, patch_config):
     """Uncalibrated σ=2 mode mass on 2° bin is ~0.68; at 40¢ EV may fail min_ev."""
     patch_config("MIN_EV", 0.05)
