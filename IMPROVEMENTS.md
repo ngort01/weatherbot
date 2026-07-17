@@ -86,7 +86,7 @@ Binary is **max overconfidence**. Naive continuous with default σ is **structur
 - [ ] Lower `calibration_min` once quality data exists (or hierarchical defaults earlier)
 - [x] Apply calibrated σ **and bias** to every probability estimate (partition model — 2026-07-17)
 - [ ] Separate calibration by horizon (D+0 vs D+1 vs D+2)
-- [ ] Report model-implied mode mass vs market mode price
+- [x] Report model-implied mode mass vs market mode price (`status` / `report` — 2026-07-17)
 - [ ] Optional: use RMSE (or MAE→Gaussian conversion) as σ scale instead of raw MAE
 
 ### 3. Portfolio / correlation risk
@@ -318,5 +318,6 @@ If you move to probabilistic `p`:
 - `event_bucket_probs` helper; tests rewritten for partition semantics
 - `min_ev` default `0.05` (was `0.1`) for non-dead paper under realistic `p`
 - Docs: `MODEL.md`, `AGENTS.md`, this file
+- Model-vs-market report on `status` / `report` (recompute partition p vs stored mids; EV pass counts; cal summary)
 
 If future-you is reading this: partition `p` is live; next leverage is horizon calibration and whether to shop non-matched bins. Don't regress to raw equal-bound CDF.

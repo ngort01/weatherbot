@@ -41,5 +41,7 @@ from weatherbet.state import (  # noqa: F401
 from weatherbet.entry import consider_entry, _fmt_bucket, _fmt_temp  # noqa: F401
 from weatherbet.scan import scan_preview, scan_and_update  # noqa: F401
 from weatherbet.monitor import monitor_positions  # noqa: F401
-from weatherbet.report import print_status, print_report  # noqa: F401
+from weatherbet.report import (  # noqa: F401
+    print_status, print_report, model_vs_market_rows, summarize_model_vs_market,
+)
 from weatherbet.cli import run_loop, run_scan_once, main  # noqa: F401
