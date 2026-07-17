@@ -91,6 +91,8 @@ python weatherbet.py           # start the bot — scans every hour, monitors ev
 python weatherbet.py scan      # dry-run preview: markets + would-be trades (no fills)
 python weatherbet.py status    # balance and open positions
 python weatherbet.py report    # full breakdown of all resolved markets
+python weatherbet.py reconcile # audit state.json cash vs market files
+python weatherbet.py reconcile --fix  # rewrite balance if they drift
 ```
 
 ---

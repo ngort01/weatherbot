@@ -11,6 +11,7 @@ Usage:
     python weatherbet.py scan     # dry-run: show markets + would-be trades (no fills)
     python weatherbet.py status   # balance and open positions
     python weatherbet.py report   # full report
+    python weatherbet.py reconcile [--fix]  # audit (or repair) balance vs market files
 """
 
 import os
@@ -555,6 +556,108 @@ def load_state():
 def save_state(state):
     STATE_FILE.write_text(json.dumps(
         state, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def balance_from_markets(markets, starting_balance):
+    """
+    Ground-truth paper cash from market files.
+
+    Open position: cost still locked → cash reduced by cost.
+    Closed position: cost returned ± realized pnl.
+    """
+    total_cost = 0.0
+    total_returned = 0.0
+    n_open = 0
+    n_closed = 0
+    for m in markets:
+        pos = m.get("position")
+        if not pos:
+            continue
+        cost = float(pos.get("cost") or 0.0)
+        total_cost += cost
+        if pos.get("status") == "closed":
+            n_closed += 1
+            pnl = pos.get("pnl")
+            total_returned += cost + (float(pnl) if pnl is not None else 0.0)
+        else:
+            n_open += 1
+    balance = round(float(starting_balance) - total_cost + total_returned, 2)
+    return {
+        "balance": balance,
+        "starting_balance": float(starting_balance),
+        "total_cost": round(total_cost, 2),
+        "total_returned": round(total_returned, 2),
+        "n_open": n_open,
+        "n_closed": n_closed,
+    }
+
+
+def reconcile_balance(apply=False, markets=None, state=None):
+    """
+    Compare state.json balance to trade reconstruction from market files.
+
+    If apply=True and they differ, rewrite balance (and lower peak_balance when
+    it was only inflated by the bad cash figure). Returns a report dict.
+    """
+    if state is None:
+        state = load_state()
+    if markets is None:
+        markets = load_all_markets()
+
+    start = float(state.get("starting_balance", BALANCE))
+    stored = round(float(state.get("balance", start)), 2)
+    rebuilt = balance_from_markets(markets, start)
+    true_bal = rebuilt["balance"]
+    delta = round(stored - true_bal, 2)
+    peak = float(state.get("peak_balance", stored))
+    # True high-water mark is not recoverable after inflation; use a conservative
+    # peak so drawdown is not fake-zero. Always peak >= true cash.
+    peak_fixed = max(start, true_bal)
+
+    report = {
+        "stored_balance": stored,
+        "true_balance": true_bal,
+        "delta": delta,
+        "ok": abs(delta) < 0.005,
+        "peak_balance": peak,
+        "peak_balance_fixed": round(peak_fixed, 2),
+        "n_open": rebuilt["n_open"],
+        "n_closed": rebuilt["n_closed"],
+        "applied": False,
+    }
+
+    if apply and not report["ok"]:
+        state["balance"] = true_bal
+        state["peak_balance"] = round(peak_fixed, 2)
+        save_state(state)
+        report["applied"] = True
+        report["peak_balance"] = float(state["peak_balance"])
+
+    return report
+
+
+def print_reconcile(apply=False):
+    """CLI: show state vs market-file cash; optionally rewrite state.json."""
+    report = reconcile_balance(apply=apply)
+    print(f"\n{'='*55}")
+    print(f"  WEATHERBET — BALANCE RECONCILE")
+    print(f"{'='*55}")
+    print(f"  Market files:  {report['n_open']} open | {report['n_closed']} closed")
+    print(f"  state.json:    ${report['stored_balance']:,.2f}")
+    print(f"  From trades:   ${report['true_balance']:,.2f}")
+    print(f"  Delta:         {'+' if report['delta'] >= 0 else ''}"
+          f"{report['delta']:,.2f}")
+    if report["ok"]:
+        print(f"  Status:        OK — balance matches market files")
+    elif report["applied"]:
+        print(f"  Status:        FIXED — wrote true balance to state.json")
+        print(f"  peak_balance:  ${report['peak_balance']:,.2f}")
+    else:
+        print(f"  Status:        DRIFT — run with --fix to rewrite state.json")
+        print(f"  peak_balance:  ${report['peak_balance']:,.2f} "
+              f"(would become ${report['peak_balance_fixed']:,.2f})")
+    print(f"{'='*55}\n")
+    return report
 
 # =============================================================================
 # CORE LOGIC
@@ -1103,6 +1206,8 @@ def scan_and_update():
                             f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl >= 0 else ''}{pnl:.2f}")
 
             # --- CLOSE POSITION if forecast shifted 2+ degrees ---
+            # Must require status=="open". Without it, every later scan re-credits
+            # cost+pnl for already-closed positions (state.json balance inflation).
             if mkt.get("position") and mkt["position"].get("status") == "open" and forecast_temp is not None:
                 pos = mkt["position"]
                 old_bucket_low = pos["bucket_low"]
@@ -1307,6 +1412,11 @@ def print_status():
     print(f"{'='*55}")
     print(
         f"  Balance:     ${bal:,.2f}  (start ${start:,.2f}, {'+'if ret_pct >= 0 else ''}{ret_pct:.1f}%)")
+    recon = reconcile_balance(apply=False, markets=markets, state=state)
+    if not recon["ok"]:
+        print(
+            f"  Balance check: DRIFT ${recon['delta']:+,.2f} vs market files "
+            f"(true ${recon['true_balance']:,.2f}) — run: python weatherbet.py reconcile --fix")
     print(
         f"  Trades:      {total} | W: {wins} | L: {losses} | WR: {wins/total:.0%}" if total else "  No trades yet")
     print(f"  Open:        {len(open_pos)}")
@@ -1612,5 +1722,8 @@ if __name__ == "__main__":
     elif cmd == "report":
         _cal = load_cal()
         print_report()
+    elif cmd == "reconcile":
+        apply = "--fix" in sys.argv[2:]
+        print_reconcile(apply=apply)
     else:
-        print("Usage: python weatherbet.py [run|scan|status|report]")
+        print("Usage: python weatherbet.py [run|scan|status|report|reconcile]")
