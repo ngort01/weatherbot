@@ -105,9 +105,11 @@ time ──► [full scan]──[mon]──[mon]──[mon]──[mon]──[mon
 
 ## Data model
 
+Ground truth is the market files. `state.json` is a cash ledger + rebuilt KPIs — if they disagree, **markets win** (that's what `reconcile --fix` is for). Don't invent a second source of truth.
+
 ### Bankroll — `data/state.json`
 
-Cash ledger fields are updated on open/close/settle. Portfolio summary fields are **rebuilt from `data/markets/*.json`** on each full scan, monitor close, `status`, `refresh`, or `reconcile --fix` (market files stay source of truth for trades).
+Cash moves on open / close / settle. Portfolio summary fields get **rebuilt from `data/markets/*.json`** on full scan, monitor close, `status`, `refresh`, or `reconcile --fix`. Trusting open-mark "equity" as skill is how you cope yourself into a green day.
 
 ```json
 {
@@ -139,57 +141,59 @@ Cash ledger fields are updated on open/close/settle. Portfolio summary fields ar
 
 | Field | Meaning |
 |-------|---------|
-| `balance` / `peak_balance` | Paper cash and high-water mark |
-| `wins` / `losses` | **Held-to-resolution** only (not stop/TP/forecast exits) |
-| `total_trades` | Open + closed positions in market files |
+| `balance` / `peak_balance` | Paper cash + high-water mark |
+| `wins` / `losses` | **Held-to-resolution only** — stop/TP/forecast exits do not count here (don't inflate the W/L tape) |
+| `total_trades` | Open + closed positions across market files |
 | `realized_pnl` | Sum of closed `position.pnl` |
-| `equity` | Cash + open cost (open marked at cost) |
+| `equity` | Cash + open cost (open marked **at cost**, not fantasy mid) |
 | `return_pct` | Equity vs `starting_balance` |
 | `drawdown_pct` | Cash vs `peak_balance` |
-| `exits` | Per `close_reason`: `{n, pnl}` |
+| `exits` | Per `close_reason`: `{n, pnl}` — where the money actually left |
 | `bucket_outcomes` | Polymarket bucket win/loss/pending (includes early exits once annotated) |
-| `hold_vs_exit` | Counterfactual sum: hold-to-resolution PnL vs early-exit PnL |
-| `actuals_count` | Markets with `actual_temp` filled |
+| `hold_vs_exit` | Counterfactual: would diamond-handing have printed more than the early exit? |
+| `actuals_count` | Markets with `actual_temp` filled (fuel for calibration) |
 
 ### Per market — `data/markets/{city}_{date}.json`
 
-One file per city/date (not per bucket). Created by `storage.new_market`; resolution fields added by `scan_and_update`.
+**One file per city/date.** Not per bucket. After close, no re-entry on that file — you already took the shot.
+
+Spawned by `storage.new_market`; resolution junk gets stamped by `scan_and_update`.
 
 | Field | Purpose |
 |-------|---------|
 | `city` / `city_name` / `date` | Identity (filename = `{city}_{date}.json`) |
-| `unit` / `station` | °F/°C and airport ICAO used for forecasts/actuals |
-| `event_end_date` / `hours_at_discovery` | Gamma end time; hours left when first seen |
-| `created_at` | UTC ISO when the file was first written |
-| `forecast_snapshots[]` | Region Open-Meteo keys + METAR / `best` over time (via `persistable_forecast_snap`) |
+| `unit` / `station` | °F/°C + **airport ICAO** the market resolves on — not downtown vibes |
+| `event_end_date` / `hours_at_discovery` | Gamma end; hours left when first seen |
+| `created_at` | UTC ISO when the file first hit disk |
+| `forecast_snapshots[]` | Open-Meteo keys + METAR / `best` over time (`persistable_forecast_snap`) |
 | `market_snapshots[]` | Top-bucket price history (`ts`, `top_bucket`, `top_price`) |
-| `all_outcomes[]` | Every temp bucket + bid/ask/volume |
-| `position` | `null` or open/closed paper trade (see below) |
-| `status` | Market file status: `open` \| `closed` \| `resolved` |
-| `resolved` | `true` once Gamma resolution has been processed (may coexist with early-exit positions) |
+| `all_outcomes[]` | Full bucket book + bid/ask/volume |
+| `position` | `null` or the paper trade (see below) |
+| `status` | File lifecycle: `open` \| `closed` \| `resolved` |
+| `resolved` | `true` once Gamma settle was processed (can sit on files that already early-exited) |
 | `resolved_outcome` | `win` / `loss` / `no_position` / … |
-| `held_to_resolution` | `true` if the paper position was still open at settle; `false` if early exit then annotated |
-| `actual_temp` | Station max after the day (Visual Crossing) |
-| `pnl` | Realized PnL on the **market** when held to resolution (early exits keep this null; PnL lives on `position.pnl`) |
-| `hold_to_resolution_pnl` | Counterfactual if exited early (annotate only; does not touch bankroll) |
+| `held_to_resolution` | Still open at settle → `true`. Paper-handed early → `false` + annotate only |
+| `actual_temp` | Station max after the day (Visual Crossing) — residual learning fuel |
+| `pnl` | Market-level realized PnL **only if held to resolution**. Early exits leave this null; cash PnL lives on `position.pnl` |
+| `hold_to_resolution_pnl` | "What if I held?" counterfactual. Annotate only — **never double-credit bankroll** |
 
-**`position` object** (when not null): entry signal + lifecycle. Core fields from `consider_entry`:
+**`position` object** (when not null) — entry signal + how you died or got paid. Built in `consider_entry`:
 
-`market_id`, `question`, `bucket_low` / `bucket_high`, `entry_price`, `bid_at_entry`, `spread`, `shares`, `cost`, `p`, `ev`, `kelly`, `forecast_temp`, `forecast_src`, `sigma`, `bias`, `opened_at`, `status` (`open`\|`closed`), `pnl`, `exit_price`, `close_reason`, `closed_at`, `stop_price`, `book_source` (`yes_mid`→`clob`), optional `liquidity_usd`, optional `trailing_activated`.
+`market_id`, `question`, `bucket_low` / `bucket_high`, `entry_price`, `bid_at_entry`, `spread`, `shares`, `cost`, `p`, `ev`, `kelly`, `forecast_temp`, `forecast_src`, `sigma`, `bias`, `opened_at`, `status` (`open`\|`closed`), `pnl`, `exit_price`, `close_reason`, `closed_at`, `stop_price`, `book_source` (`yes_mid`→`clob` after live fetch), optional `liquidity_usd`, optional `trailing_activated`.
 
 ### Calibration — `data/calibration.json`
 
 Keys `{city}_{source}` (e.g. `chicago_hrrr`):
 
-- `sigma` — MAE of forecast vs actual (Gaussian scale for `bucket_prob`)
-- `bias` — mean signed error (forecast − actual); μ = forecast − bias
+- `sigma` — MAE of forecast vs actual (Gaussian scale into `bucket_prob`)
+- `bias` — mean(forecast − actual); μ = forecast − bias. Get the sign wrong and you're pricing the wrong residual
 - `n` — sample count
 
-Updated by `run_calibration` when enough markets have actuals (`calibration_min`, default 20). Used for **all** matched-bucket `p` at entry and for forecast-exit recompute — not edge-only. Until `n` is large enough, defaults are `SIGMA_F` / `SIGMA_C` and bias 0. Formulas: **`MODEL.md`**.
+`run_calibration` fires when enough markets have actuals (`calibration_min`, default 20). This is **not** edge-bucket cosplay — σ/bias hit **every** matched-bucket `p` at entry **and** on forecast-exit recompute. Thin `n`? Defaults: `SIGMA_F` / `SIGMA_C`, bias 0 — which is exactly Trap B territory until the sample fills. Math: **`MODEL.md`**.
 
 ### Config — `config.json` + `.env`
 
-Risk and trade knobs live in `config.json`. Secrets (`VC_KEY`) live in `.env`, not config.
+Strategy knobs → `config.json`. Secrets (`VC_KEY`) → `.env` only. If you commit a live key you are the risk event.
 
 ---
 
@@ -424,11 +428,11 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
             under partition residual model
 ```
 
-Today’s strategy is essentially:
+Today’s strategy in one line:
 
-> Buy YES on the single bucket my point forecast lands in, with `p` = residual Gaussian mass for that bin. Enter only if EV vs ask clears `min_ev`, price/volume/spread pass, and portfolio caps allow.
+> Buy YES on the **single** bucket the point forecast lands in. `p` = residual Gaussian mass for that bin. Enter only if EV vs ask clears `min_ev` and the book/risk filters don't scream no.
 
-That is a **forecast-tracking / favorite-bucket** strategy with honest residual probability — not multi-bucket EV shopping. Math detail: `MODEL.md`.
+Forecast-tracking favorite-bucket with **honest** residual `p` — not multi-bucket EV shopping, not binary "I matched so p=1" yolo. Math: `MODEL.md`. Don't regress.
 
 ---
 
@@ -446,7 +450,7 @@ That is a **forecast-tracking / favorite-bucket** strategy with honest residual 
 | `min_hours` / `max_hours` | 2 / 72 | Horizon window |
 | `kelly_fraction` | 0.25 | Fraction of full Kelly |
 | Portfolio caps | 20 / 2 / 6 / 20% | Concentration limits |
-| `forecast_exit_min_edge` | 0.0 | After forecast leaves bucket, exit only if `p − bid ≤` this |
+| `forecast_exit_min_edge` | 0.0 | Forecast left bucket+buffer: dump only if residual edge `p − bid ≤` this (else hold) |
 | `calibration_min` | 20 | Samples before city/source σ updates |
 | `scan_interval` | 3600 | Full scan period (seconds) |
 | `monitor_interval` | 600 | Stop/TP poll period (seconds) |
@@ -466,4 +470,4 @@ That is a **forecast-tracking / favorite-bucket** strategy with honest residual 
 
 ## One-sentence summary
 
-Hourly, scrape forecasts and Polymarket for 20 cities × 4 days; paper-buy YES on the single temperature bucket the best forecast lands in if liquidity/price/EV/risk pass; manage with stops, take-profit, and forecast flips; settle against Gamma; learn residual error from Visual Crossing.
+Hourly, scrape forecasts + Polymarket for 20 cities × 4 days; paper-buy YES on the **one** temp bucket the best forecast lands in if EV/liquidity/risk pass; manage with stops, TP, and residual-edge forecast exits; settle on Gamma; learn residuals from Visual Crossing — all paper, no live YOLO.

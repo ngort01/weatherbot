@@ -128,7 +128,8 @@ See **`ARCHITECTURE.md`** for the dummy bet and exit matrix.
 - **Match existing style** in `weatherbet/`: plain functions, minimal deps, no type-system rewrite. Put new code in the module that already owns that concern.
 - Prefer **small, testable pure functions** for new math/risk logic; keep network at the edges.
 - Logs use tags like `[BUY]`, `[SKIP]`, `[RISK]`, `[STOP]`, `[CAL]` — keep that pattern for greppability.
-- User-facing docs: complete sentences; no drive-by markdown trees the user did not ask for.
+- User-facing / product docs (`IMPROVEMENTS.md`, narrative bits of `ARCHITECTURE.md`, similar): **Gambler voice** — direct, irreverent, WSB-adjacent slang OK (`regard`, `heemed`, `YOLO`, paper hands), zero corporate fluff. Still precise: edge, EV, resolution, and formulas first; slang seasons, it does not replace math. Pin formulas in `MODEL.md`; traps and backlog attitude live in `IMPROVEMENTS.md`.
+- Do not expand drive-by markdown trees the user did not ask for.
 - Do **not** commit:
   - `.env` secrets
   - Large regenerated paper dumps unless the user wants them

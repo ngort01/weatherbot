@@ -1,54 +1,53 @@
-# 🌤 WeatherBet — Polymarket Weather Trading Bot
+# WeatherBet — Polymarket highest-temp paper bot
 
-Automated weather market trading bot for Polymarket. Finds mispriced temperature outcomes using real forecast data from multiple sources across 20 cities worldwide.
+Paper-trading bot for Polymarket **highest daily temperature** markets.
 
-No SDK. No black box. Pure Python.
+Finds the bucket the forecast lands in, prices residual Gaussian mass against the YES ask, and either takes the edge or sits the fuck down. No SDK. No "AI agentic trading platform." Pure Python, `requests`, and a JSON bankroll you can actually grep.
 
----
-
-## Versions
-
-### Package `weatherbet/` — Full Bot (current)
-
-Logic lives under `weatherbet/` (config, model, forecasts, scan, …). Run via `python weatherbet.py` or `python -m weatherbet`.
-
-The bot features:
-- **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
-- **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
-- **Partition probability** — Gaussian residual mass on the forecast-matched bucket (see `MODEL.md`)
-- **Expected Value** — skips trades where EV is below `min_ev` (see `MODEL.md`)
-- **Kelly Criterion** — fractional Kelly sizing, then `max_bet` (see `MODEL.md`)
-- **Stop-loss + trailing stop** — stop = entry − max(`stop_loss_pct` × entry, `min_stop_width`); trail to breakeven at +20%
-- **Forecast residual-edge exit** — if forecast leaves the bucket, sell only when model `p` no longer exceeds salvage bid (`forecast_exit_min_edge`)
-- **Min price / depth** — skip asks below `min_price` and thin Gamma liquidity when reported
-- **Portfolio caps** — max open positions / per city / per date / capital at risk
-- **Slippage filter** — skips markets with spread > `max_slippage`
-- **Self-calibration** — learns forecast accuracy per city over time
-- **Full data storage** — every forecast snapshot, trade, and resolution saved to JSON
+**Does not place live orders.** Paper only until you explicitly go live (and if you do: official Polymarket `py-sdk`, env secrets, kill switch — see `IMPROVEMENTS.md` §8–9). YOLO on mainnet before resolved sample size is how you get heemed by a 1° station miss.
 
 ---
 
-## How It Works
+## What it actually does
 
-Polymarket runs markets like "Will the highest temperature in Chicago be between 46–47°F on March 7?" These markets are often mispriced — the forecast says 78% likely but the market is trading at 8 cents.
+Logic lives in `weatherbet/`. Run via `python weatherbet.py` or `python -m weatherbet`.
 
-The bot:
-1. Fetches forecasts from ECMWF and HRRR via Open-Meteo (free, no key required)
-2. Gets real-time observations from METAR airport stations
-3. Finds the matching temperature bucket on Polymarket (matched-bucket only)
-4. Calculates partition `p` and EV — only enters if EV ≥ `min_ev` (`MODEL.md`)
-5. Sizes the position with fractional Kelly, capped by `max_bet`
-6. Monitors stops every `monitor_interval` (default 10 min); full scan every `scan_interval` (default 1h)
-7. On forecast drift: recomputes residual edge vs bid before early exit
-8. Auto-resolves markets by querying Polymarket API directly
+- **20 cities** — airports, not downtown vibes (US / EU / Asia / LatAm / Oceania)
+- **Forecasts** — ECMWF (global), HRRR/GFS (US), METAR on the station
+- **Partition `p`** — residual Gaussian mass on the **matched** bucket only (`MODEL.md`). Binary `p=1` on match is dead. Good riddance.
+- **EV gate** — skip unless `EV ≥ min_ev`
+- **Fractional Kelly** then hard `max_bet` — Kelly is not a personality trait
+- **Stops** — stop = entry − max(`stop_loss_pct` × entry, `min_stop_width`); trail to breakeven at +20%
+- **Forecast residual-edge exit** — mode left the bucket? Sell only when `p − bid ≤ forecast_exit_min_edge`. Panic-selling residual edge is paper hands with a weather API.
+- **Book filters** — `min_price`, spread/`max_slippage`, optional Gamma depth, portfolio caps (total / city / date / capital %)
+- **Calibration** — learns σ/bias per city×source from actuals; uncalibrated σ=2 systematically hates 30–45¢ favorites (Trap B — not a free bugfix)
+- **Full tape** — every snap, fill, exit, resolution under `data/`
 
 ---
 
-## Why Airport Coordinates Matter
+## How it works (short)
 
-Most bots use city center coordinates. That's wrong.
+Polymarket runs shit like: *Will the highest temperature in Chicago be between 72–73°F on July 17?*
 
-Every Polymarket weather market resolves on a specific airport station. NYC resolves on LaGuardia (KLGA), Dallas on Love Field (KDAL) — not DFW. The difference between city center and airport can be 3–8°F. On markets with 1–2°F buckets, that's the difference between the right trade and a guaranteed loss.
+Often mispriced vs a good airport forecast. Often correctly priced and you're just cope-reading the book. The bot doesn't care about your narrative — it cares about residual mass vs ask.
+
+1. Forecast high at the **resolution airport** (Open-Meteo ECMWF/HRRR + METAR)
+2. Match the **one** temp bucket that contains that forecast (no shopping tails for juicier EV)
+3. `bucket_prob` → EV vs ask → Kelly size → risk caps
+4. Paper-buy YES if everything clears
+5. Monitor stops every `monitor_interval` (~10m); full scan every `scan_interval` (~1h)
+6. Forecast drift: recompute residual edge before early exit
+7. Resolve on Gamma; learn residuals from Visual Crossing actuals
+
+Math pin: **`MODEL.md`**. Dummy bet walkthrough: **`ARCHITECTURE.md`**. Traps: **`IMPROVEMENTS.md`**.
+
+---
+
+## Why airport coordinates matter (don't be regarded)
+
+City-center coords are how you lose money with confidence.
+
+Every Polymarket weather market resolves on a **specific airport station**. NYC → KLGA (LaGuardia). Dallas → KDAL (Love Field), **not** DFW. Downtown vs airport can be 3–8°F. On 1–2° buckets that's not "noise" — that's buying the wrong contract and then writing a blog post about volatility.
 
 | City | Station | Airport |
 |------|---------|---------|
@@ -60,18 +59,19 @@ Every Polymarket weather market resolves on a specific airport station. NYC reso
 | Atlanta | KATL | Hartsfield |
 | London | EGLC | London City |
 | Tokyo | RJTT | Haneda |
-| ... | ... | ... |
+| … | … | full map in `config` / `LOCATIONS` |
 
 ---
 
-## Installation
+## Install
+
 ```bash
 git clone https://github.com/alteregoeth-ai/weatherbot
 cd weatherbot
 pip install -r requirements-dev.txt   # or: pip install requests python-dotenv
 ```
 
-Strategy knobs ship in committed `config.json` (edit in place; do not put secrets here):
+Strategy knobs live in committed `config.json`. Edit them. **Do not put secrets here.**
 
 ```json
 {
@@ -99,76 +99,102 @@ Strategy knobs ship in committed `config.json` (edit in place; do not put secret
 }
 ```
 
-Secrets go in `.env` (see `.env.example`):
+Secrets → `.env` only:
 
 ```bash
 cp .env.example .env
-# edit: VC_KEY=...
+# VC_KEY=... from visualcrossing.com (free tier is fine)
 ```
 
-Get a free Visual Crossing API key at visualcrossing.com — used to fetch actual temperatures after market resolution (`VC_KEY` only; never commit real keys).
+Visual Crossing is for **actuals after resolution** so calibration isn't vibes. Commit a real key and you're the risk event.
 
 ---
 
 ## Usage
+
 ```bash
-python weatherbet.py           # start the bot — scans every hour, monitors every 10 min
-python weatherbet.py scan      # dry-run preview: markets + would-be trades (no fills)
-python weatherbet.py status    # balance and open positions
-python weatherbet.py report    # full breakdown of all resolved markets
-python weatherbet.py reconcile # audit state.json cash vs market files
-python weatherbet.py reconcile --fix  # rewrite balance if they drift
-python weatherbet.py refresh   # rebuild portfolio KPIs in state.json from markets
+python weatherbet.py              # main loop: hourly scan (fills) + 10m monitor
+python weatherbet.py scan         # dry-run: markets + would-be trades, no fills/writes
+python weatherbet.py status       # cash, opens, model-vs-market tape
+python weatherbet.py report       # resolved breakdown + cal summary
+python weatherbet.py reconcile    # audit state.json cash vs market files
+python weatherbet.py reconcile --fix  # rewrite balance if they drift (markets win)
+python weatherbet.py refresh      # rebuild portfolio KPIs from market files
 ```
+
+Run from **repo root** so `config.json` loads from cwd. Point experimental runs at isolated `data/` paths if you value your paper history.
 
 ---
 
 ## Tests
 
-Characterization tests pin **current** bot behavior (partition residual probabilities). See `TESTING_PLAN.md` and `MODEL.md`.
+Characterization suite pins **what the code does now**, including partition `p` and residual-edge exits — not the fantasy bot in your head.
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
 
+See `TESTING_PLAN.md`. Offline only — mock network or you're testing your wifi.
+
 ---
 
-## Docs
+## Docs (read these before "fixing" the math)
 
 | Doc | For |
 |-----|-----|
-| [`AGENTS.md`](AGENTS.md) | AI agents / contributors — invariants, traps, how to change code safely |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the bot works, data model, dummy bet walkthrough |
-| [`MODEL.md`](MODEL.md) | Probability, EV, Kelly, residual-edge forecast exit |
-| [`IMPROVEMENTS.md`](IMPROVEMENTS.md) | Backlog and known design issues |
-| [`TESTING_PLAN.md`](TESTING_PLAN.md) | Characterization test philosophy and coverage plan |
+| [`AGENTS.md`](AGENTS.md) | Invariants, traps, where to edit without nuking the strategy |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Loop, data model, dummy bet, exit matrix |
+| [`MODEL.md`](MODEL.md) | Probability / EV / Kelly / residual-edge exit — the pin |
+| [`IMPROVEMENTS.md`](IMPROVEMENTS.md) | Brutal backlog + design traps (Trap A/B live here) |
+| [`TESTING_PLAN.md`](TESTING_PLAN.md) | What tests lock and why |
+
+If you're about to "just use continuous Φ on raw `[t_low, t_high]`" for exact bins: **stop.** That's Trap A. `p=0` forever. Read `IMPROVEMENTS.md` §1.
 
 ---
 
-## Data Storage
+## Data
 
-All data is saved to `data/markets/` — one JSON file per market. Each file contains:
-- Hourly forecast snapshots (ECMWF, HRRR, METAR)
-- Market price history
-- Position details (entry, stop, PnL)
-- Final resolution outcome
+Everything under `data/` (gitignored runtime state — don't commit your paper trauma unless you mean it):
 
-This data is used for self-calibration — the bot learns forecast accuracy per city over time and adjusts position sizing accordingly.
+| Path | What |
+|------|------|
+| `data/state.json` | Paper bankroll + rebuilt KPIs |
+| `data/markets/{city}_{date}.json` | One file per city/date: snaps, book, position, resolve |
+| `data/calibration.json` | Per `{city}_{source}` σ / bias / n |
+
+Market files are **source of truth** for trades. `state.json` is cash + summary — if they disagree, markets win. Early exit does **not** get a second bankroll credit at resolution; that's how you invent tendies.
 
 ---
 
-## APIs Used
+## APIs
 
 | API | Auth | Purpose |
 |-----|------|---------|
 | Open-Meteo | None | ECMWF + HRRR forecasts |
-| Aviation Weather (METAR) | None | Real-time station observations |
-| Polymarket Gamma | None | Market data |
-| Visual Crossing | Free key | Historical temps for resolution |
+| Aviation Weather (METAR) | None | Live station obs |
+| Polymarket Gamma | None | Events, prices, resolve |
+| Visual Crossing | `VC_KEY` | Historical max for calibration |
 
 ---
 
-## Disclaimer
+## Don't
 
-This is not financial advice. Prediction markets carry real risk. Run the simulation thoroughly before committing real capital.
+- Live trade before you have a resolved track record that isn't cope
+- Trust unrealized PnL on open weather marks as "alpha"
+- Downtown coords because "city center is more accurate"
+- Binary certainty because the forecast matched the label
+- Commit `.env`
+- Pretend Kelly is risk management while you max-bet every city on the same cold front
+
+---
+
+## Disclaimer (read it, regard)
+
+This is **paper**. Default path never touches a wallet. If you wire live trading yourself and ape size before you have a resolved track record, that is not "the bot failed" — that is you.
+
+Prediction markets still rekt people who confuse vibes for edge. Weather contracts rekt people who use downtown coords, ignore resolution stations, and treat a matched forecast as p=1. Liquidity is thin, spreads are real, and a 1° station miss can zero a "sure thing" favorite.
+
+Nothing here is a promise of tendies. Math can be right and you still lose. Math can be wrong and you print for a week and learn nothing. Run the sim until the tape is boring. If you go live, use official tooling, env secrets, a kill switch, and size like you actually read `IMPROVEMENTS.md` §8–9.
+
+You are responsible for your own bags. Don't @ us when Gamma settles against your hopium.
