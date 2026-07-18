@@ -12,6 +12,7 @@ from weatherbet.model import (
 )
 from weatherbet.forecasts import (
     take_forecast_snapshot, get_actual_temp, FORECAST_SOURCE_KEYS,
+    persistable_forecast_snap,
 )
 from weatherbet.polymarket import (
     get_polymarket_event, parse_event_outcomes, hours_to_resolution,
@@ -288,19 +289,11 @@ def scan_and_update():
             outcomes = parse_event_outcomes(event)
             mkt["all_outcomes"] = outcomes
 
-            # Forecast snapshot
+            # Forecast snapshot (all region sources from take_forecast_snapshot)
             snap = snapshots.get(date, {})
-            forecast_snap = {
-                "ts":          snap.get("ts"),
-                "horizon":     horizon,
-                "hours_left":  round(hours, 1),
-                "ecmwf":       snap.get("ecmwf"),
-                "hrrr":        snap.get("hrrr"),
-                "metar":       snap.get("metar"),
-                "best":        snap.get("best"),
-                "best_source": snap.get("best_source"),
-            }
-            mkt["forecast_snapshots"].append(forecast_snap)
+            mkt["forecast_snapshots"].append(
+                persistable_forecast_snap(snap, horizon, hours)
+            )
 
             # Market price snapshot
             top = max(outcomes, key=lambda x: x["price"]) if outcomes else None

@@ -122,10 +122,12 @@ Example:
 Blending only pays after residuals are honest; otherwise you're averaging garbage into μ.
 
 **Status (2026-07-18):** multi-source **collection** only. `take_forecast_snapshot`
-stores region-scoped Open-Meteo models (ICON/MF/UKMO for EU, GEM for CA,
+fetches region-scoped Open-Meteo models (ICON/MF/UKMO for EU, GEM for CA,
 JMA/KMA/CMA for Asia, BOM for OC) alongside ECMWF/HRRR/METAR.
-`pick_best` is unchanged (US→HRRR else ECMWF). Calibration iterates
-`FORECAST_SOURCE_KEYS` so residuals can accumulate before blend weights.
+`scan_and_update` persists them via `persistable_forecast_snap` (not a hard-coded
+ecmwf/hrrr/metar whitelist). `pick_best` is unchanged (US→HRRR else ECMWF).
+Calibration iterates `FORECAST_SOURCE_KEYS` so residuals can accumulate before
+blend weights.
 
 ### 5. Better entry filters
 

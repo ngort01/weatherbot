@@ -7,6 +7,7 @@ from weatherbet.forecasts import (
     _parse_daily_maxes,
     c_to_display,
     open_meteo_params,
+    persistable_forecast_snap,
     pick_best,
     sources_for_region,
 )
@@ -76,6 +77,30 @@ def test_open_meteo_registry_has_models():
     for key, cfg in OPEN_METEO_SOURCES.items():
         assert cfg.get("model"), key
         assert cfg.get("tag"), key
+
+
+def test_persistable_forecast_snap_keeps_regional_sources():
+    snap = {
+        "ts": "2026-07-18T12:00:00+00:00",
+        "ecmwf": 22.0,
+        "icon": 23.1,
+        "meteofrance": 22.5,
+        "ukmo": 21.8,
+        "metar": 20.0,
+        "best": 22.0,
+        "best_source": "ecmwf",
+    }
+    out = persistable_forecast_snap(snap, "D+0", 12.34)
+    assert out["horizon"] == "D+0"
+    assert out["hours_left"] == 12.3
+    assert out["icon"] == 23.1
+    assert out["meteofrance"] == 22.5
+    assert out["ukmo"] == 21.8
+    assert out["ecmwf"] == 22.0
+    assert out["best_source"] == "ecmwf"
+    # US-only key not on snap → omitted (not forced to None)
+    assert "hrrr" not in out
+    assert "gem" not in out
 
 
 def test_c_to_display():

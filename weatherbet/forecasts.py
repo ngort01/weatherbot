@@ -209,11 +209,30 @@ def get_actual_temp(city_slug, date_str):
     return None
 
 
+def persistable_forecast_snap(snap, horizon, hours_left):
+    """
+    Market-file forecast_snapshots entry: meta + every source key present on snap.
+    Keeps region-specific models (icon, gem, …) instead of a hard-coded whitelist.
+    """
+    out = {
+        "ts": snap.get("ts"),
+        "horizon": horizon,
+        "hours_left": round(hours_left, 1),
+        "best": snap.get("best"),
+        "best_source": snap.get("best_source"),
+    }
+    for k in FORECAST_SOURCE_KEYS:
+        if k in snap:
+            out[k] = snap[k]
+    return out
+
+
 def take_forecast_snapshot(city_slug, dates):
     """
     Fetches forecasts from all region-applicable sources and returns a snapshot.
     Extra regional models are stored for later use; pick_best is unchanged.
     """
+
     now = datetime.now(timezone.utc)
     now_str = now.isoformat()
     today = now.strftime("%Y-%m-%d")

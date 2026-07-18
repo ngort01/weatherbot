@@ -157,7 +157,7 @@ One file per city/date (not per bucket). Contents:
 
 | Field | Purpose |
 |-------|---------|
-| `forecast_snapshots[]` | ECMWF / HRRR / METAR / `best` over time |
+| `forecast_snapshots[]` | Region Open-Meteo keys + METAR / `best` over time (via `persistable_forecast_snap`) |
 | `market_snapshots[]` | Top-bucket price history |
 | `all_outcomes[]` | Every temp bucket + bid/ask/volume |
 | `position` | `null` or open/closed paper trade |
