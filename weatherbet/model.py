@@ -105,3 +105,39 @@ def compute_stop_price(entry, stop_pct=None, min_width=None):
     floor = float(min_width if min_width is not None else config.MIN_STOP_WIDTH)
     width = max(e * pct, floor)
     return round(max(e - width, 0.0), 4)
+
+
+def residual_edge(p, bid):
+    """
+    Model mass on the held bucket minus salvage YES bid.
+
+    Positive → model still values the ticket above what the book pays to exit.
+    """
+    if p is None or bid is None:
+        return None
+    return float(p) - float(bid)
+
+
+def should_exit_on_forecast(p, bid, min_edge=None):
+    """
+    Forecast-driven exit gate: sell only when residual edge is gone.
+
+    edge = p − bid. Exit when edge ≤ min_edge (default
+    config.FORECAST_EXIT_MIN_EDGE, typically 0).
+
+    Price stops remain separate. Missing bid → do not forecast-exit (cannot
+    sell). See IMPROVEMENTS §12 / MODEL.md.
+    """
+    if p is None or bid is None:
+        return False
+    try:
+        b = float(bid)
+        prob = float(p)
+    except (TypeError, ValueError):
+        return False
+    if b < 0:
+        return False
+    floor = float(
+        min_edge if min_edge is not None else config.FORECAST_EXIT_MIN_EDGE
+    )
+    return (prob - b) <= floor

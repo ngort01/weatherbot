@@ -6,8 +6,10 @@ import requests
 
 from weatherbet import config
 from weatherbet import calibration
-from weatherbet.calibration import get_sigma, run_calibration
-from weatherbet.model import compute_stop_price
+from weatherbet.calibration import get_sigma, get_bias, run_calibration
+from weatherbet.model import (
+    compute_stop_price, bucket_prob, residual_edge, should_exit_on_forecast,
+)
 from weatherbet.forecasts import take_forecast_snapshot, get_actual_temp
 from weatherbet.polymarket import (
     get_polymarket_event, parse_event_outcomes, hours_to_resolution,
@@ -345,14 +347,16 @@ def scan_and_update():
                         print(
                             f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl >= 0 else ''}{pnl:.2f}")
 
-            # --- CLOSE POSITION if forecast shifted 2+ degrees ---
+            # --- CLOSE POSITION if forecast left bucket+buffer AND residual edge gone ---
             # Must require status=="open". Without it, every later scan re-credits
             # cost+pnl for already-closed positions (state.json balance inflation).
+            # Residual edge: sell only when p ≤ bid + forecast_exit_min_edge so we
+            # do not dump dust bids while model mass still exceeds salvage (Paris-17).
             if mkt.get("position") and mkt["position"].get("status") == "open" and forecast_temp is not None:
                 pos = mkt["position"]
                 old_bucket_low = pos["bucket_low"]
                 old_bucket_high = pos["bucket_high"]
-                # 2-degree buffer — avoid closing on small forecast fluctuations
+                # Buffer — avoid evaluating exit on small forecast fluctuations
                 unit = loc["unit"]
                 buffer = 2.0 if unit == "F" else 1.0
                 mid_bucket = (old_bucket_low + old_bucket_high) / 2 if old_bucket_low != - \
@@ -363,21 +367,48 @@ def scan_and_update():
                     current_price = None
                     for o in outcomes:
                         if o["market_id"] == pos["market_id"]:
-                            current_price = o["price"]
+                            # Sell at bid when present (same as stop path)
+                            current_price = o.get("bid", o.get("price"))
                             break
                     if current_price is not None:
-                        pnl = round(
-                            (current_price - pos["entry_price"]) * pos["shares"], 2)
-                        balance += pos["cost"] + pnl
-                        book_register_close(book, city_slug, date, pos["cost"])
-                        mkt["position"]["closed_at"] = snap.get("ts")
-                        mkt["position"]["close_reason"] = "forecast_changed"
-                        mkt["position"]["exit_price"] = current_price
-                        mkt["position"]["pnl"] = pnl
-                        mkt["position"]["status"] = "closed"
-                        closed += 1
-                        print(
-                            f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl >= 0 else ''}{pnl:.2f}")
+                        src = best_source or pos.get("forecast_src") or "ecmwf"
+                        sigma = get_sigma(city_slug, src)
+                        bias = get_bias(city_slug, src)
+                        p_live = bucket_prob(
+                            forecast_temp, old_bucket_low, old_bucket_high,
+                            sigma, bias,
+                        )
+                        edge = residual_edge(p_live, current_price)
+                        if should_exit_on_forecast(p_live, current_price):
+                            pnl = round(
+                                (current_price - pos["entry_price"]) * pos["shares"], 2)
+                            balance += pos["cost"] + pnl
+                            book_register_close(book, city_slug, date, pos["cost"])
+                            mkt["position"]["closed_at"] = snap.get("ts")
+                            mkt["position"]["close_reason"] = "forecast_changed"
+                            mkt["position"]["exit_price"] = current_price
+                            mkt["position"]["pnl"] = pnl
+                            mkt["position"]["status"] = "closed"
+                            mkt["position"]["exit_p"] = round(p_live, 4)
+                            mkt["position"]["exit_edge"] = (
+                                round(edge, 4) if edge is not None else None
+                            )
+                            closed += 1
+                            print(
+                                f"  [CLOSE] {loc['name']} {date} — forecast edge gone "
+                                f"(p={p_live:.3f} bid={current_price:.3f} edge="
+                                f"{edge:+.3f}) | PnL: {'+' if pnl >= 0 else ''}{pnl:.2f}")
+                        else:
+                            # Mode left bucket but model still > salvage bid — hold
+                            pos["residual_p"] = round(p_live, 4)
+                            pos["residual_bid"] = current_price
+                            pos["residual_edge"] = (
+                                round(edge, 4) if edge is not None else None
+                            )
+                            print(
+                                f"  [HOLD] {loc['name']} {date} — forecast left bucket "
+                                f"but residual edge p={p_live:.3f} bid={current_price:.3f} "
+                                f"edge={edge:+.3f}")
 
             # --- OPEN POSITION ---
             # One position per market record (closed position blocks re-entry).

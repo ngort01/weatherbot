@@ -285,9 +285,9 @@ OPEN
   │                           <24h      → hold (no TP)
   │
   ├─ full scan ──────────► same stop / trail
-  │                      ► exit if forecast leaves bucket
-  │                        by more than ~1–2° buffer
-  │                        (reason: forecast_changed)
+  │                      ► if forecast leaves bucket by more than ~1–2° buffer:
+  │                        recompute p; exit only when p − bid ≤ min_edge
+  │                        (reason: forecast_changed); else [HOLD] residual edge
   │
   └─ resolution ─────────► Gamma: market closed + YES ~1 or ~0
                            held open → bankroll ± shares×(1−entry) or −cost
@@ -307,7 +307,7 @@ Exit reasons: `stop_loss`, `trailing_stop`, `take_profit`, `forecast_changed`, `
 | Module | Responsibility |
 |--------|----------------|
 | `config.py` | `config.json` / `.env`, paths, `LOCATIONS`, strategy knobs |
-| `model.py` | `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size` — see **`MODEL.md`** |
+| `model.py` | `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size`, `residual_edge`, `should_exit_on_forecast` — see **`MODEL.md`** |
 | `calibration.py` | MAE/bias from resolved actuals (`_cal` cache) |
 | `risk.py` | Open caps (`portfolio_snapshot`, `risk_limit_reason`) |
 | `forecasts.py` | ECMWF, HRRR, METAR, VC actuals |
@@ -385,7 +385,8 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
    |------|---------|-----------------|
    | Take-profit (36h → TP 0.85) | bid hits 0.85 | PnL = (0.85−0.32)×62.5 = **+$33.12** |
    | Stop | bid → 0.25 | PnL = (0.25−0.32)×62.5 = **−$4.38** |
-   | Forecast flip | later high 78°F | sell at bid; `forecast_changed` |
+   | Forecast flip | later high 78°F, p ≤ bid | sell at bid; `forecast_changed` |
+   | Forecast left bucket but p > bid | mode moved, residual edge | hold; log residual |
    | Hold WIN | actual high 72–73 | exit 1.0; PnL = 62.5×(1−0.32) = **+$42.50**; wins++ |
    | Hold LOSS | actual high 70 | exit 0.0; PnL = **−$20**; losses++ |
 

@@ -148,7 +148,19 @@ Strategy one-liner:
 
 > Forecast-tracking: buy YES on the single bucket the point forecast lands in, sized by real residual probability vs market price — not by treating the match as certain.
 
-`in_bucket` still decides **which** bucket is matched and forecast-exit drift; it does not set `p`.
+`in_bucket` still decides **which** bucket is matched and the **first** forecast-exit gate (left bucket + ° buffer). It does not set `p`.
+
+### Forecast exit residual edge
+
+After the buffer gate, scan recomputes live `p` on the **held** bucket and compares to salvage bid:
+
+```text
+edge = p − bid
+exit if edge ≤ forecast_exit_min_edge   (default 0)
+else hold                               # [HOLD] residual edge
+```
+
+Helpers: `residual_edge`, `should_exit_on_forecast`. Price stops are unchanged.
 
 ---
 
@@ -156,8 +168,9 @@ Strategy one-liner:
 
 | Symbol | Module |
 |--------|--------|
-| `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size` | `weatherbet/model.py` |
+| `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size`, `residual_edge`, `should_exit_on_forecast` | `weatherbet/model.py` |
 | `in_bucket`, `parse_temp_range` | `weatherbet/polymarket.py` |
 | `consider_entry` (uses p / EV / Kelly) | `weatherbet/entry.py` |
+| Forecast exit residual-edge gate | `weatherbet/scan.py` (uses `should_exit_on_forecast`) |
 | Portfolio open caps (not Kelly) | `weatherbet/risk.py` |
 | σ / bias from residuals | `weatherbet/calibration.py` |

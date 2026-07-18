@@ -25,6 +25,9 @@ MIN_ASK_DEPTH_USD = float(_cfg.get("min_ask_depth_usd", 25.0))
 # Stop: entry - max(entry * stop_loss_pct, min_stop_width)
 STOP_LOSS_PCT = float(_cfg.get("stop_loss_pct", 0.20))
 MIN_STOP_WIDTH = float(_cfg.get("min_stop_width", 0.05))
+# Forecast exit: after mode leaves bucket+buffer, sell only if p - bid <= this.
+# 0 → hold whenever model mass still exceeds salvage bid (Paris-17 class).
+FORECAST_EXIT_MIN_EDGE = float(_cfg.get("forecast_exit_min_edge", 0.0))
 SCAN_INTERVAL = int(_cfg.get("scan_interval", 3600))
 MONITOR_INTERVAL = int(_cfg.get("monitor_interval", 600))
 CALIBRATION_MIN = int(_cfg.get("calibration_min", 30))

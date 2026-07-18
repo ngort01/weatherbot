@@ -211,13 +211,16 @@ Beyond sigma MAE:
 
 ### 12. Forecast change exits are crude
 
-Current logic closes if forecast drifts far from entry bucket.
+**Status (2026-07-18):** residual-edge gate shipped. After forecast leaves
+bucket+buffer, scan recomputes live `p = bucket_prob(...)` and only closes when
+`p − bid ≤ forecast_exit_min_edge` (default 0). Logs `[HOLD]` when mode moved
+but salvage bid is still below model mass. Price stops remain separate.
 
-**Improve:**
+**Still open:**
 
-- Recompute live EV; only exit if EV flipped negative (requires a real `p` model)
-- Don't panic-close on tiny model noise
-- Separate "model flip" vs "price dump" exits
+- Hysteresis (N consecutive edge-gone scans) for model noise
+- Multi-source / blend so one hot source does not force edge-gone (Atlanta-17 class)
+- Separate explicit reasons: `forecast_edge_gone` vs legacy name `forecast_changed`
 
 ### 13. Store more signal, less vibes
 
@@ -325,5 +328,11 @@ If you move to probabilistic `p`:
 - `min_ev` default `0.05` (was `0.1`) for non-dead paper under realistic `p`
 - Docs: `MODEL.md`, `AGENTS.md`, this file
 - Model-vs-market report on `status` / `report` (recompute partition p vs stored mids; EV pass counts; cal summary)
+
+## Shipped (2026-07-18)
+
+- Forecast exit residual-edge gate: after bucket+buffer drift, close only when
+  `p − bid ≤ forecast_exit_min_edge` (`should_exit_on_forecast`); hold + log
+  otherwise. Config key `forecast_exit_min_edge` (default 0).
 
 If future-you is reading this: partition `p` is live; next leverage is horizon calibration and whether to shop non-matched bins. Don't regress to raw equal-bound CDF.
