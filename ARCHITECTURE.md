@@ -153,29 +153,39 @@ Cash ledger fields are updated on open/close/settle. Portfolio summary fields ar
 
 ### Per market — `data/markets/{city}_{date}.json`
 
-One file per city/date (not per bucket). Contents:
+One file per city/date (not per bucket). Created by `storage.new_market`; resolution fields added by `scan_and_update`.
 
 | Field | Purpose |
 |-------|---------|
+| `city` / `city_name` / `date` | Identity (filename = `{city}_{date}.json`) |
+| `unit` / `station` | °F/°C and airport ICAO used for forecasts/actuals |
+| `event_end_date` / `hours_at_discovery` | Gamma end time; hours left when first seen |
+| `created_at` | UTC ISO when the file was first written |
 | `forecast_snapshots[]` | Region Open-Meteo keys + METAR / `best` over time (via `persistable_forecast_snap`) |
-| `market_snapshots[]` | Top-bucket price history |
+| `market_snapshots[]` | Top-bucket price history (`ts`, `top_bucket`, `top_price`) |
 | `all_outcomes[]` | Every temp bucket + bid/ask/volume |
-| `position` | `null` or open/closed paper trade |
-| `status` | `open` \| `closed` \| `resolved` |
-| `resolved_outcome` | `win` / `loss` / … |
+| `position` | `null` or open/closed paper trade (see below) |
+| `status` | Market file status: `open` \| `closed` \| `resolved` |
+| `resolved` | `true` once Gamma resolution has been processed (may coexist with early-exit positions) |
+| `resolved_outcome` | `win` / `loss` / `no_position` / … |
+| `held_to_resolution` | `true` if the paper position was still open at settle; `false` if early exit then annotated |
 | `actual_temp` | Station max after the day (Visual Crossing) |
-| `pnl` | Realized PnL when held to resolution |
-| `hold_to_resolution_pnl` | Counterfactual if exited early |
+| `pnl` | Realized PnL on the **market** when held to resolution (early exits keep this null; PnL lives on `position.pnl`) |
+| `hold_to_resolution_pnl` | Counterfactual if exited early (annotate only; does not touch bankroll) |
+
+**`position` object** (when not null): entry signal + lifecycle. Core fields from `consider_entry`:
+
+`market_id`, `question`, `bucket_low` / `bucket_high`, `entry_price`, `bid_at_entry`, `spread`, `shares`, `cost`, `p`, `ev`, `kelly`, `forecast_temp`, `forecast_src`, `sigma`, `bias`, `opened_at`, `status` (`open`\|`closed`), `pnl`, `exit_price`, `close_reason`, `closed_at`, `stop_price`, `book_source` (`yes_mid`→`clob`), optional `liquidity_usd`, optional `trailing_activated`.
 
 ### Calibration — `data/calibration.json`
 
 Keys `{city}_{source}` (e.g. `chicago_hrrr`):
 
-- `sigma` — MAE of forecast vs actual
-- `bias` — mean signed error
+- `sigma` — MAE of forecast vs actual (Gaussian scale for `bucket_prob`)
+- `bias` — mean signed error (forecast − actual); μ = forecast − bias
 - `n` — sample count
 
-Updated by `run_calibration` when enough markets have actuals (`calibration_min`, default 20). Used for **edge** buckets and intended for a fuller probability model later; middle-bucket trades today barely use it (see Math).
+Updated by `run_calibration` when enough markets have actuals (`calibration_min`, default 20). Used for **all** matched-bucket `p` at entry and for forecast-exit recompute — not edge-only. Until `n` is large enough, defaults are `SIGMA_F` / `SIGMA_C` and bias 0. Formulas: **`MODEL.md`**.
 
 ### Config — `config.json` + `.env`
 
@@ -436,6 +446,7 @@ That is a **forecast-tracking / favorite-bucket** strategy with honest residual 
 | `min_hours` / `max_hours` | 2 / 72 | Horizon window |
 | `kelly_fraction` | 0.25 | Fraction of full Kelly |
 | Portfolio caps | 20 / 2 / 6 / 20% | Concentration limits |
+| `forecast_exit_min_edge` | 0.0 | After forecast leaves bucket, exit only if `p − bid ≤` this |
 | `calibration_min` | 20 | Samples before city/source σ updates |
 | `scan_interval` | 3600 | Full scan period (seconds) |
 | `monitor_interval` | 600 | Stop/TP poll period (seconds) |

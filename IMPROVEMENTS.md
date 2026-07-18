@@ -2,7 +2,7 @@
 
 Brutal backlog of upgrades. Don't forget these just because paper PnL looked cute for a week.
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 ---
 
