@@ -15,11 +15,14 @@ Logic lives under `weatherbet/` (config, model, forecasts, scan, …). Run via `
 The bot features:
 - **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
 - **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
-- **Expected Value** — skips trades where EV is below threshold (see `MODEL.md`)
+- **Partition probability** — Gaussian residual mass on the forecast-matched bucket (see `MODEL.md`)
+- **Expected Value** — skips trades where EV is below `min_ev` (see `MODEL.md`)
 - **Kelly Criterion** — fractional Kelly sizing, then `max_bet` (see `MODEL.md`)
-- **Stop-loss + trailing stop** — stop = entry − max(20% of entry, 5¢); trail to breakeven at +20%
+- **Stop-loss + trailing stop** — stop = entry − max(`stop_loss_pct` × entry, `min_stop_width`); trail to breakeven at +20%
+- **Forecast residual-edge exit** — if forecast leaves the bucket, sell only when model `p` no longer exceeds salvage bid (`forecast_exit_min_edge`)
 - **Min price / depth** — skip asks below `min_price` and thin Gamma liquidity when reported
-- **Slippage filter** — skips markets with spread > $0.03
+- **Portfolio caps** — max open positions / per city / per date / capital at risk
+- **Slippage filter** — skips markets with spread > `max_slippage`
 - **Self-calibration** — learns forecast accuracy per city over time
 - **Full data storage** — every forecast snapshot, trade, and resolution saved to JSON
 
@@ -32,11 +35,12 @@ Polymarket runs markets like "Will the highest temperature in Chicago be between
 The bot:
 1. Fetches forecasts from ECMWF and HRRR via Open-Meteo (free, no key required)
 2. Gets real-time observations from METAR airport stations
-3. Finds the matching temperature bucket on Polymarket
-4. Calculates Expected Value — only enters if EV ≥ `min_ev` (`MODEL.md`)
+3. Finds the matching temperature bucket on Polymarket (matched-bucket only)
+4. Calculates partition `p` and EV — only enters if EV ≥ `min_ev` (`MODEL.md`)
 5. Sizes the position with fractional Kelly, capped by `max_bet`
-6. Monitors stops every 10 minutes, full scan every hour
-7. Auto-resolves markets by querying Polymarket API directly
+6. Monitors stops every `monitor_interval` (default 10 min); full scan every `scan_interval` (default 1h)
+7. On forecast drift: recomputes residual edge vs bid before early exit
+8. Auto-resolves markets by querying Polymarket API directly
 
 ---
 
@@ -64,10 +68,11 @@ Every Polymarket weather market resolves on a specific airport station. NYC reso
 ```bash
 git clone https://github.com/alteregoeth-ai/weatherbot
 cd weatherbot
-pip install requests
+pip install -r requirements-dev.txt   # or: pip install requests python-dotenv
 ```
 
-Create `config.json` in the project folder:
+Strategy knobs ship in committed `config.json` (edit in place; do not put secrets here):
+
 ```json
 {
   "balance": 10000.0,
@@ -75,22 +80,33 @@ Create `config.json` in the project folder:
   "min_ev": 0.05,
   "max_price": 0.45,
   "min_price": 0.08,
-  "min_ask_depth_usd": 25.0,
-  "stop_loss_pct": 0.20,
-  "min_stop_width": 0.05,
-  "min_volume": 2000,
+  "min_volume": 500,
   "min_hours": 2.0,
   "max_hours": 72.0,
   "kelly_fraction": 0.25,
-  "max_slippage": 0.03,
   "scan_interval": 3600,
   "monitor_interval": 600,
   "calibration_min": 20,
-  "vc_key": "YOUR_VISUAL_CROSSING_KEY"
+  "max_slippage": 0.03,
+  "min_ask_depth_usd": 25.0,
+  "stop_loss_pct": 0.20,
+  "min_stop_width": 0.05,
+  "forecast_exit_min_edge": 0.0,
+  "max_open_positions": 20,
+  "max_open_per_city": 2,
+  "max_open_per_date": 6,
+  "max_capital_at_risk_pct": 0.2
 }
 ```
 
-Get a free Visual Crossing API key at visualcrossing.com — used to fetch actual temperatures after market resolution.
+Secrets go in `.env` (see `.env.example`):
+
+```bash
+cp .env.example .env
+# edit: VC_KEY=...
+```
+
+Get a free Visual Crossing API key at visualcrossing.com — used to fetch actual temperatures after market resolution (`VC_KEY` only; never commit real keys).
 
 ---
 
@@ -124,6 +140,7 @@ pytest
 |-----|-----|
 | [`AGENTS.md`](AGENTS.md) | AI agents / contributors — invariants, traps, how to change code safely |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the bot works, data model, dummy bet walkthrough |
+| [`MODEL.md`](MODEL.md) | Probability, EV, Kelly, residual-edge forecast exit |
 | [`IMPROVEMENTS.md`](IMPROVEMENTS.md) | Backlog and known design issues |
 | [`TESTING_PLAN.md`](TESTING_PLAN.md) | Characterization test philosophy and coverage plan |
 
