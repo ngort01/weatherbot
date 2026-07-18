@@ -1,10 +1,15 @@
-"""Forecast sources: ECMWF, HRRR/GFS, METAR, Visual Crossing actuals."""
+"""Forecast sources: Open-Meteo models, METAR, Visual Crossing actuals."""
 import time
 from datetime import datetime, timezone, timedelta
 
 import requests
 
 from weatherbet import config
+from weatherbet.open_meteo_sources import (  # noqa: F401 — re-export for callers
+    FORECAST_SOURCE_KEYS,
+    HRRR_HORIZON_DAYS,
+    OPEN_METEO_SOURCES,
+)
 
 OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 METAR_URL = "https://aviationweather.gov/api/data/metar"
@@ -18,7 +23,6 @@ METAR_TIMEOUT = (5, 8)
 VC_TIMEOUT = (5, 8)
 HTTP_RETRIES = 3
 RETRY_SLEEP_S = 3
-HRRR_HORIZON_DAYS = 2
 
 
 def open_meteo_params(loc, city_slug, *, model, temp_unit, forecast_days,
@@ -60,6 +64,13 @@ def c_to_display(temp_c, unit):
     return round(float(temp_c), 1)
 
 
+def _round_fn_for_unit(unit):
+    """Match historical ECMWF rounding: whole °F, one decimal °C."""
+    if unit == "C":
+        return lambda t: round(t, 1)
+    return round
+
+
 def _get_json(url, *, params=None, timeout=(5, 10), tag="", city_slug="",
               extra="", retries=HTTP_RETRIES):
     """GET JSON with retries on transport/parse errors. Returns None on failure."""
@@ -93,8 +104,22 @@ def _hrrr_horizon_date(now_utc=None):
     return (now_utc + timedelta(days=HRRR_HORIZON_DAYS)).strftime("%Y-%m-%d")
 
 
+def sources_for_region(region):
+    """Open-Meteo snapshot keys applicable to a city region (including global)."""
+    keys = []
+    for key, cfg in OPEN_METEO_SOURCES.items():
+        regions = cfg.get("regions")
+        if regions is None or region in regions:
+            keys.append(key)
+    return keys
+
+
 def pick_best(snap, region):
-    """Best forecast: HRRR for US when present, otherwise ECMWF. Pure."""
+    """
+    Trading selection (unchanged philosophy):
+    HRRR for US when present, otherwise ECMWF.
+    Extra regional sources are stored but not used here yet.
+    """
     if region == "us" and snap.get("hrrr") is not None:
         return snap["hrrr"], "hrrr"
     if snap.get("ecmwf") is not None:
@@ -102,46 +127,49 @@ def pick_best(snap, region):
     return None, None
 
 
-def get_ecmwf(city_slug, dates):
-    """ECMWF via Open-Meteo with bias correction. For all cities."""
+def get_open_meteo(city_slug, dates, source_key):
+    """
+    Fetch one registered Open-Meteo model for a city.
+    Returns {} if source unknown, region mismatch, or fetch/parse empty.
+    """
+    cfg = OPEN_METEO_SOURCES.get(source_key)
+    if not cfg:
+        return {}
     loc = config.LOCATIONS[city_slug]
+    regions = cfg.get("regions")
+    if regions is not None and loc["region"] not in regions:
+        return {}
     unit = loc["unit"]
     temp_unit = "fahrenheit" if unit == "F" else "celsius"
-    round_fn = (lambda t: round(t, 1)) if unit == "C" else round
+    # Preserve legacy HRRR behavior: always whole °F (US-only).
+    if source_key == "hrrr":
+        round_fn = round
+    else:
+        round_fn = _round_fn_for_unit(unit)
     data = _get_json(
         OPEN_METEO_FORECAST,
         params=open_meteo_params(
             loc, city_slug,
-            model="ecmwf_ifs025",
+            model=cfg["model"],
             temp_unit=temp_unit,
-            forecast_days=7,
-            bias_correction=True,
+            forecast_days=cfg.get("forecast_days", 7),
+            bias_correction=bool(cfg.get("bias_correction")),
         ),
         timeout=OPEN_METEO_TIMEOUT,
-        tag="ECMWF",
+        tag=cfg.get("tag", source_key.upper()),
         city_slug=city_slug,
     )
     return _parse_daily_maxes(data, dates, round_fn)
 
 
+def get_ecmwf(city_slug, dates):
+    """ECMWF via Open-Meteo with bias correction. For all cities."""
+    return get_open_meteo(city_slug, dates, "ecmwf")
+
+
 def get_hrrr(city_slug, dates):
     """HRRR via Open-Meteo. US cities only, up to 48h horizon."""
-    loc = config.LOCATIONS[city_slug]
-    if loc["region"] != "us":
-        return {}
-    data = _get_json(
-        OPEN_METEO_FORECAST,
-        params=open_meteo_params(
-            loc, city_slug,
-            model="gfs_seamless",  # HRRR+GFS seamless — best option for US
-            temp_unit="fahrenheit",
-            forecast_days=3,
-        ),
-        timeout=OPEN_METEO_TIMEOUT,
-        tag="HRRR",
-        city_slug=city_slug,
-    )
-    return _parse_daily_maxes(data, dates, round)
+    return get_open_meteo(city_slug, dates, "hrrr")
 
 
 def get_metar(city_slug):
@@ -182,25 +210,39 @@ def get_actual_temp(city_slug, date_str):
 
 
 def take_forecast_snapshot(city_slug, dates):
-    """Fetches forecasts from all sources and returns a snapshot."""
+    """
+    Fetches forecasts from all region-applicable sources and returns a snapshot.
+    Extra regional models are stored for later use; pick_best is unchanged.
+    """
     now = datetime.now(timezone.utc)
     now_str = now.isoformat()
     today = now.strftime("%Y-%m-%d")
-    hrrr_until = _hrrr_horizon_date(now)
     region = config.LOCATIONS[city_slug]["region"]
+    source_keys = sources_for_region(region)
 
-    ecmwf = get_ecmwf(city_slug, dates)
-    hrrr = get_hrrr(city_slug, dates)
+    by_source = {}
+    for key in source_keys:
+        by_source[key] = get_open_meteo(city_slug, dates, key)
+
     metar = get_metar(city_slug) if today in dates else None
+    horizon_by_key = {}
+    for key in source_keys:
+        max_h = OPEN_METEO_SOURCES[key].get("max_horizon_days")
+        if max_h is not None:
+            horizon_by_key[key] = (
+                now + timedelta(days=max_h)
+            ).strftime("%Y-%m-%d")
 
     snapshots = {}
     for date in dates:
-        snap = {
-            "ts": now_str,
-            "ecmwf": ecmwf.get(date),
-            "hrrr": hrrr.get(date) if date <= hrrr_until else None,
-            "metar": metar if date == today else None,
-        }
+        snap = {"ts": now_str}
+        for key in source_keys:
+            temp = by_source[key].get(date)
+            until = horizon_by_key.get(key)
+            if until is not None and date > until:
+                temp = None
+            snap[key] = temp
+        snap["metar"] = metar if date == today else None
         best, source = pick_best(snap, region)
         snap["best"] = best
         snap["best_source"] = source

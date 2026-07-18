@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 
 from weatherbet import config
+from weatherbet.forecasts import FORECAST_SOURCE_KEYS
 
 _cal: dict = {}
 
@@ -50,7 +51,7 @@ def run_calibration(markets):
     cal = load_cal()
     updated = []
 
-    for source in ["ecmwf", "hrrr", "metar"]:
+    for source in FORECAST_SOURCE_KEYS:
         for city in set(m["city"] for m in resolved):
             group = [m for m in resolved if m["city"] == city]
             abs_errors = []

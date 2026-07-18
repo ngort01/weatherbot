@@ -10,7 +10,9 @@ from weatherbet.calibration import get_sigma, get_bias, run_calibration
 from weatherbet.model import (
     compute_stop_price, bucket_prob, residual_edge, should_exit_on_forecast,
 )
-from weatherbet.forecasts import take_forecast_snapshot, get_actual_temp
+from weatherbet.forecasts import (
+    take_forecast_snapshot, get_actual_temp, FORECAST_SOURCE_KEYS,
+)
 from weatherbet.polymarket import (
     get_polymarket_event, parse_event_outcomes, hours_to_resolution,
     in_bucket, check_market_resolved,
@@ -91,11 +93,13 @@ def scan_preview():
             pos_status = (pos or {}).get("status")
 
             src = (best_source or "?").upper()
+            extra = " ".join(
+                f"{k.upper()} {_fmt_temp(snap.get(k), unit_sym)}"
+                for k in FORECAST_SOURCE_KEYS
+                if k in snap
+            )
             fc_bits = (
-                f"best {_fmt_temp(forecast_temp, unit_sym)} ({src})"
-                f" | ECMWF {_fmt_temp(snap.get('ecmwf'), unit_sym)}"
-                f" HRRR {_fmt_temp(snap.get('hrrr'), unit_sym)}"
-                f" METAR {_fmt_temp(snap.get('metar'), unit_sym)}"
+                f"best {_fmt_temp(forecast_temp, unit_sym)} ({src}) | {extra}"
             )
             print(f"     {horizon} {date} | {hours:.1f}h left | {fc_bits}")
             print(f"       buckets: {len(outcomes)} | "

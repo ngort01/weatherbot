@@ -90,6 +90,7 @@ time ──► [full scan]──[mon]──[mon]──[mon]──[mon]──[mon
 |------------------------|-------------|------|
 | Open-Meteo ECMWF       | None        | Daily max temp, all cities |
 | Open-Meteo HRRR/GFS    | None        | US only, short horizon; preferred as “best” when present |
+| Open-Meteo regional    | None        | Collected only: ICON/MF/UKMO (eu), GEM (ca), JMA/KMA/CMA (asia), BOM (oc) |
 | METAR (Aviation Weather) | None      | Live station observation (stored on D+0; not primary trade signal) |
 | Polymarket Gamma       | None        | Event by slug, bucket prices, resolve, bestAsk/bestBid at entry |
 | Visual Crossing        | `VC_KEY` (.env) | Historical max for `actual_temp` → calibration |

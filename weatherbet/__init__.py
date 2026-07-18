@@ -24,8 +24,12 @@ from weatherbet.polymarket import (  # noqa: F401
     get_polymarket_event, get_market_price, check_market_resolved,
     parse_event_outcomes,
 )
+from weatherbet.open_meteo_sources import (  # noqa: F401
+    OPEN_METEO_SOURCES, FORECAST_SOURCE_KEYS, HRRR_HORIZON_DAYS,
+)
 from weatherbet.forecasts import (  # noqa: F401
     get_ecmwf, get_hrrr, get_metar, get_actual_temp, take_forecast_snapshot,
+    get_open_meteo, sources_for_region,
 )
 from weatherbet.calibration import (  # noqa: F401
     load_cal, get_sigma, get_bias, snapshot_source_temp, run_calibration, _cal,

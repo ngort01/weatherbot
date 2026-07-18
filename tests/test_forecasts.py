@@ -2,11 +2,13 @@
 from datetime import datetime, timezone
 
 from weatherbet.forecasts import (
+    OPEN_METEO_SOURCES,
     _hrrr_horizon_date,
     _parse_daily_maxes,
     c_to_display,
     open_meteo_params,
     pick_best,
+    sources_for_region,
 )
 
 
@@ -47,6 +49,33 @@ def test_pick_best_us_prefers_hrrr():
 def test_pick_best_non_us_ignores_hrrr():
     assert pick_best({"hrrr": 90, "ecmwf": 88}, "eu") == (88, "ecmwf")
     assert pick_best({"hrrr": 90, "ecmwf": None}, "eu") == (None, None)
+
+
+def test_pick_best_ignores_regional_sources_for_trading():
+    """Extra models are stored but not selected until blending ships."""
+    snap = {
+        "hrrr": None,
+        "ecmwf": 22.0,
+        "icon": 24.0,
+        "meteofrance": 23.5,
+        "ukmo": 21.0,
+    }
+    assert pick_best(snap, "eu") == (22.0, "ecmwf")
+
+
+def test_sources_for_region_assignment():
+    assert sources_for_region("us") == ["ecmwf", "hrrr"]
+    assert sources_for_region("eu") == ["ecmwf", "icon", "meteofrance", "ukmo"]
+    assert sources_for_region("ca") == ["ecmwf", "gem"]
+    assert sources_for_region("asia") == ["ecmwf", "jma", "kma", "cma"]
+    assert sources_for_region("oc") == ["ecmwf", "bom"]
+    assert sources_for_region("sa") == ["ecmwf"]
+
+
+def test_open_meteo_registry_has_models():
+    for key, cfg in OPEN_METEO_SOURCES.items():
+        assert cfg.get("model"), key
+        assert cfg.get("tag"), key
 
 
 def test_c_to_display():
