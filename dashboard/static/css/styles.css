@@ -1,0 +1,156 @@
+/* Minimal extras on top of Tailwind CDN (plain CSS — CDN does not process @apply). */
+
+.tab-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+  border: 1px solid transparent;
+  background: transparent;
+}
+.tab-btn:hover {
+  color: #fff;
+  background: #121a2b;
+}
+.tab-btn.active {
+  background: #1a2438;
+  color: #fff;
+  border-color: #243049;
+}
+
+.card {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(36, 48, 73, 0.85);
+  background: rgba(12, 18, 32, 0.85);
+  padding: 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.card-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 0.75rem;
+}
+
+.filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.filter-input {
+  border-radius: 0.375rem;
+  border: 1px solid #243049;
+  background: #121a2b;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  padding: 0.375rem 0.5rem;
+  min-width: 7rem;
+}
+.filter-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.5);
+}
+
+.data-table {
+  width: 100%;
+  text-align: left;
+  font-size: 0.8125rem;
+  border-collapse: collapse;
+}
+.data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #121a2b;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+}
+.data-table th {
+  padding: 0.5rem 0.75rem;
+  font-weight: 500;
+  border-bottom: 1px solid #243049;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.data-table th:hover { color: #e2e8f0; }
+.data-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(26, 36, 56, 0.7);
+  white-space: nowrap;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.data-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.data-table tbody tr:hover { background: rgba(18, 26, 43, 0.9); }
+.data-table tbody tr:nth-child(even) { background: rgba(7, 11, 18, 0.35); }
+
+.kpi {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(36, 48, 73, 0.85);
+  background: rgba(12, 18, 32, 0.85);
+  padding: 0.875rem 1rem;
+}
+.kpi-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+.kpi-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+.kpi-sub {
+  font-size: 0.625rem;
+  color: #64748b;
+  margin-top: 0.125rem;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.pnl-pos { color: #34d399; }
+.pnl-neg { color: #fb7185; }
+.pnl-zero { color: #94a3b8; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge-open { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; }
+.badge-closed { background: rgba(100, 116, 139, 0.2); color: #cbd5e1; }
+.badge-win { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.badge-loss { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
+
+#drawer.open { transform: translateX(0); }
+#drawer-backdrop.open {
+  display: block;
+  opacity: 1;
+}
+
+/* HTMX loading cue on #main */
+.htmx-main.htmx-request {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
