@@ -108,21 +108,45 @@ const ChartKit = (() => {
   function barSigned(id, opts) {
     const colors = (opts.values || []).map((v) => (v >= 0 ? "#34d399" : "#fb7185"));
     const horizontal = !!opts.horizontal;
+    const labels = opts.labels || [];
+    const n = labels.length;
+
+    // Horizontal city charts: grow parent so every row has room; widen y-axis for names.
+    if (horizontal) {
+      const canvas = document.getElementById(id);
+      if (canvas && canvas.parentElement) {
+        const rowPx = 26;
+        const padPx = 48;
+        canvas.parentElement.style.height = `${Math.max(280, n * rowPx + padPx)}px`;
+      }
+    }
+
+    /** Longest label width estimate (px) for category axis on the left. */
+    const maxLabelChars = labels.reduce((m, s) => Math.max(m, String(s || "").length), 0);
+    const yLabelWidth = horizontal
+      ? Math.min(160, Math.max(88, Math.ceil(maxLabelChars * 7.2) + 12))
+      : undefined;
+
     return make(id, {
       type: "bar",
       data: {
-        labels: opts.labels,
+        labels,
         datasets: [{
           label: opts.label || "value",
           data: opts.values,
           backgroundColor: colors,
           borderRadius: 4,
+          categoryPercentage: horizontal ? 0.85 : 0.8,
+          barPercentage: horizontal ? 0.9 : 0.9,
         }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         indexAxis: horizontal ? "y" : "x",
+        layout: horizontal
+          ? { padding: { left: 4, right: 8, top: 4, bottom: 4 } }
+          : { padding: 0 },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -136,8 +160,27 @@ const ChartKit = (() => {
           },
         },
         scales: {
-          x: { ...baseScales.x },
-          y: { ...baseScales.y },
+          x: {
+            ...baseScales.x,
+            ticks: { ...baseScales.x.ticks },
+            grid: { ...baseScales.x.grid },
+          },
+          y: {
+            ...baseScales.y,
+            ticks: {
+              ...baseScales.y.ticks,
+              // Don't drop city names when the chart is dense
+              autoSkip: !horizontal,
+              autoSkipPadding: 2,
+              font: { family: fontFamily, size: horizontal ? 11 : 10 },
+            },
+            grid: horizontal ? { display: false } : { ...baseScales.y.grid },
+            afterFit: horizontal
+              ? (scale) => {
+                  scale.width = Math.max(scale.width, yLabelWidth || 100);
+                }
+              : undefined,
+          },
         },
       },
     });

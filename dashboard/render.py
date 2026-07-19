@@ -468,12 +468,17 @@ def partial_cities(data: dict) -> str:
             </tr>'''
         )
 
+    n_cities = max(len(cities), 1)
+    chart_h = max(320, n_cities * 26 + 48)
+
     return f'''
 {oob_meta(data)}
 <div class="space-y-4" data-tab="cities">
   <div class="card">
     <h2 class="card-title">PnL by city</h2>
-    <div class="h-80"><canvas id="chart-city-pnl"></canvas></div>
+    <div class="w-full relative" style="height:{chart_h}px">
+      <canvas id="chart-city-pnl"></canvas>
+    </div>
     {chart}
   </div>
   <div class="card p-0 overflow-hidden">
