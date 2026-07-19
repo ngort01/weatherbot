@@ -141,3 +141,63 @@ def should_exit_on_forecast(p, bid, min_edge=None):
         min_edge if min_edge is not None else config.FORECAST_EXIT_MIN_EDGE
     )
     return (prob - b) <= floor
+
+
+def forecast_exit_confirm_needed(hours_left=None, confirm=None, fast_hours=None):
+    """
+    Effective consecutive edge-gone scans required before forecast exit.
+
+    Far from resolution: config.FORECAST_EXIT_CONFIRM_SCANS (or confirm).
+    Near resolution (hours_left < fast_hours): force 1 so we do not wait
+    another hourly scan while salvage dies. fast_hours <= 0 disables that.
+    Missing hours_left → normal confirm (no free force-exit).
+    """
+    need = int(
+        confirm if confirm is not None else config.FORECAST_EXIT_CONFIRM_SCANS
+    )
+    if need < 1:
+        need = 1
+    fh = float(
+        fast_hours
+        if fast_hours is not None
+        else getattr(config, "FORECAST_EXIT_FAST_HOURS", 0.0)
+    )
+    if fh <= 0 or hours_left is None:
+        return need
+    try:
+        h = float(hours_left)
+    except (TypeError, ValueError):
+        return need
+    if h < fh:
+        return 1
+    return need
+
+
+def bump_forecast_exit_hits(prev_hits, edge_gone, confirm=None):
+    """
+    Hysteresis for forecast residual-edge exits.
+
+    edge_gone True  → increment hits; close when hits >= confirm scans.
+    edge_gone False → reset hits (residual hold or back in bucket).
+
+    confirm defaults to config.FORECAST_EXIT_CONFIRM_SCANS (floor 1).
+    Callers near resolution should pass
+    confirm=forecast_exit_confirm_needed(hours_left).
+
+    Returns (new_hits, should_close).
+    """
+    need = int(
+        confirm if confirm is not None else config.FORECAST_EXIT_CONFIRM_SCANS
+    )
+    if need < 1:
+        need = 1
+    try:
+        hits = int(prev_hits or 0)
+    except (TypeError, ValueError):
+        hits = 0
+    if hits < 0:
+        hits = 0
+    if not edge_gone:
+        return 0, False
+    hits += 1
+    return hits, hits >= need

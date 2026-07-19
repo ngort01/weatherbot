@@ -18,7 +18,7 @@ Logic lives in `weatherbet/`. Run via `python weatherbet.py` or `python -m weath
 - **EV gate** — skip unless `EV ≥ min_ev`
 - **Fractional Kelly** then hard `max_bet` — Kelly is not a personality trait
 - **Stops** — stop = entry − max(`stop_loss_pct` × entry, `min_stop_width`); trail to breakeven at +20%
-- **Forecast residual-edge exit** — mode left the bucket? Sell only when `p − bid ≤ forecast_exit_min_edge`. Panic-selling residual edge is paper hands with a weather API.
+- **Forecast residual-edge exit** — mode left the bucket? Sell only when `p − bid ≤ forecast_exit_min_edge`, confirmed over `forecast_exit_confirm_scans` consecutive scans (force confirm=1 when `hours_left < forecast_exit_fast_hours`). Panic-selling residual edge is paper hands with a weather API.
 - **Book filters** — `min_price`, spread/`max_slippage`, optional Gamma depth, portfolio caps (total / city / date / capital %)
 - **Calibration** — learns σ/bias per city×source from actuals; uncalibrated σ=2 systematically hates 30–45¢ favorites (Trap B — not a free bugfix)
 - **Full tape** — every snap, fill, exit, resolution under `data/`
@@ -72,29 +72,77 @@ pip install -r requirements-dev.txt   # or: pip install requests python-dotenv
 ```
 
 Strategy knobs live in committed `config.json`. Edit them. **Do not put secrets here.**
+(Comments below are README-only — real `config.json` is strict JSON, no `//`.)
 
-```json
+```jsonc
 {
+  // Starting paper bankroll seed. Runtime cash lives in data/state.json — this is not your live wallet, regard.
   "balance": 10000.0,
+
+  // Hard $ cap per fill. Kelly can propose less; it cannot propose more. Leash, not personality.
   "max_bet": 20.0,
+
+  // Minimum EV to open. Uncalibrated σ=2 → mode mass ~20% → 30–45¢ favorites often fail this (Trap B). Not a free "be more aggressive" dial.
   "min_ev": 0.05,
+
+  // Never buy YES at/above this. Expensive favorites are where hopium pays the vig.
   "max_price": 0.45,
+
+  // Never buy YES below this. Penny stubs (Tel‑Aviv-class) are stop food, not alpha.
   "min_price": 0.08,
+
+  // Min matched-bucket volume. Illiquid trash still has a price — doesn't mean you can exit.
   "min_volume": 500,
+
+  // Don't enter if resolution is closer than this (hours). Last-minute lottery tickets need a thesis, not a cron.
   "min_hours": 2.0,
+
+  // Don't enter if resolution is farther than this. D+3 weather is fan fiction with a temperature label.
   "max_hours": 72.0,
+
+  // Fraction of full Kelly. 0.25 = quarter Kelly. Full Kelly on correlated heat waves is how you get heemed by one airmass.
   "kelly_fraction": 0.25,
+
+  // Full scan period (seconds): forecasts + Gamma + entry/exit + resolve. ~1h default.
   "scan_interval": 3600,
+
+  // Between scans: stop / trail / TP only (seconds). ~10m default. Price death doesn't wait for the hourly meeting.
   "monitor_interval": 600,
+
+  // Min residual samples before city×source σ/bias leaves defaults. Empty cal is a wait, not a bug — don't fake n.
   "calibration_min": 20,
+
+  // Max ask−bid on live CLOB. Wide book = you're the exit liquidity for someone else's bag.
   "max_slippage": 0.03,
+
+  // When Gamma reports liquidity USD, require ≥ max(cost, this). 0 = off. Missing liquidity does not skip.
   "min_ask_depth_usd": 25.0,
+
+  // Stop distance as fraction of entry. Combined with min_stop_width: stop = entry − max(entry×pct, width).
   "stop_loss_pct": 0.20,
+
+  // Floor on stop distance in price units. Cheap entries still need room or every tick is a stop-out.
   "min_stop_width": 0.05,
+
+  // Forecast left bucket+buffer: sell only if residual edge p−bid ≤ this. 0 = hold while model still > salvage (Paris-17). Paper hands use a weather API.
   "forecast_exit_min_edge": 0.0,
+
+  // Consecutive edge-gone scans before forecast_changed. 1 = off (residual edge only). ≥2 = multi-scan wait — replay didn't clearly print; leave at 1 unless you're experimenting.
+  "forecast_exit_confirm_scans": 1,
+
+  // If hours_left < this, force confirm=1 even when confirm_scans ≥ 2. Near resolve, waiting another hourly scan is how dust eats you.
+  "forecast_exit_fast_hours": 6.0,
+
+  // Max simultaneous open positions. Correlation doesn't care that they're "different cities."
   "max_open_positions": 20,
+
+  // Max opens per city slug. Don't ladder the same station into oblivion.
   "max_open_per_city": 2,
+
+  // Max opens per calendar date. One cold front, six jerseys — still one bet.
   "max_open_per_date": 6,
+
+  // Max sum(open costs) / equity. Equity ≈ cash + open cost basis (not live MTM fantasy).
   "max_capital_at_risk_pct": 0.2
 }
 ```

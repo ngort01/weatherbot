@@ -159,11 +159,24 @@ Forecast left the bucket+buffer? Don't panic-sell just because the mode moved. S
 
 ```text
 edge = p − bid
-exit if edge ≤ forecast_exit_min_edge   (default 0)
-else hold                               # [HOLD] residual edge — diamond hands with math
+edge_gone if edge ≤ forecast_exit_min_edge   (default 0)
+else hold                                    # [HOLD] residual edge — diamond hands with math
+
+# hysteresis (config forecast_exit_confirm_scans; committed default 1 = off):
+close only after N consecutive edge_gone scans
+reset hits on residual hold or forecast back in bucket+buffer
+
+# near resolution (hours_left < forecast_exit_fast_hours, default 6):
+N = 1  # do not wait another hourly scan into dust
 ```
 
-Helpers: `residual_edge`, `should_exit_on_forecast`. Price stops (stop / trail / TP) are a different path — residual edge doesn't replace them.
+Helpers: `residual_edge`, `should_exit_on_forecast`, `forecast_exit_confirm_needed`,
+`bump_forecast_exit_hits`. Price stops (stop / trail / TP) are a different path —
+residual edge doesn't replace them.
+
+Note: the second confirm scan does **not** require the forecast to change again —
+only that residual edge is still gone (`p ≤ bid`). Bids can reprice without a
+new model run; global models often only re-run a few times per day.
 
 ---
 
@@ -171,10 +184,10 @@ Helpers: `residual_edge`, `should_exit_on_forecast`. Price stops (stop / trail /
 
 | Symbol | Module |
 |--------|--------|
-| `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size`, `residual_edge`, `should_exit_on_forecast` | `weatherbet/model.py` |
+| `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size`, `residual_edge`, `should_exit_on_forecast`, `forecast_exit_confirm_needed`, `bump_forecast_exit_hits` | `weatherbet/model.py` |
 | `in_bucket`, `parse_temp_range` | `weatherbet/polymarket.py` |
 | `consider_entry` (uses p / EV / Kelly) | `weatherbet/entry.py` |
-| Forecast exit residual-edge gate | `weatherbet/scan.py` (`should_exit_on_forecast`) |
+| Forecast exit residual-edge + hysteresis | `weatherbet/scan.py` (`forecast_exit_confirm_needed`, `bump_forecast_exit_hits`) |
 | Portfolio open caps (not Kelly — correlation still open) | `weatherbet/risk.py` |
 | σ / bias from residuals | `weatherbet/calibration.py` |
 

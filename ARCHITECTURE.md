@@ -301,8 +301,9 @@ OPEN
   │
   ├─ full scan ──────────► same stop / trail
   │                      ► if forecast leaves bucket by more than ~1–2° buffer:
-  │                        recompute p; exit only when p − bid ≤ min_edge
-  │                        (reason: forecast_changed); else [HOLD] residual edge
+  │                        recompute p; edge_gone when p − bid ≤ min_edge;
+  │                        close only after forecast_exit_confirm_scans hits
+  │                        (reason: forecast_changed); else [HOLD]
   │
   └─ resolution ─────────► Gamma: market closed + YES ~1 or ~0
                            held open → bankroll ± shares×(1−entry) or −cost
@@ -322,7 +323,7 @@ Exit reasons: `stop_loss`, `trailing_stop`, `take_profit`, `forecast_changed`, `
 | Module | Responsibility |
 |--------|----------------|
 | `config.py` | `config.json` / `.env`, paths, `LOCATIONS`, strategy knobs |
-| `model.py` | `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size`, `residual_edge`, `should_exit_on_forecast` — see **`MODEL.md`** |
+| `model.py` | `norm_cdf`, `resolution_bin`, `bucket_prob`, `event_bucket_probs`, `calc_ev`, `calc_kelly`, `bet_size`, `residual_edge`, `should_exit_on_forecast`, `bump_forecast_exit_hits` — see **`MODEL.md`** |
 | `calibration.py` | MAE/bias from resolved actuals (`_cal` cache) |
 | `risk.py` | Open caps (`portfolio_snapshot`, `risk_limit_reason`) |
 | `forecasts.py` | ECMWF, HRRR, METAR, VC actuals |
@@ -400,8 +401,9 @@ Concrete numbers with typical config (`max_bet` 20, `min_ev` 0.10, `max_price` 0
    |------|---------|-----------------|
    | Take-profit (36h → TP 0.85) | bid hits 0.85 | PnL = (0.85−0.32)×62.5 = **+$33.12** |
    | Stop | bid → 0.25 | PnL = (0.25−0.32)×62.5 = **−$4.38** |
-   | Forecast flip | later high 78°F, p ≤ bid | sell at bid; `forecast_changed` |
+   | Forecast flip | later high 78°F, p ≤ bid for N scans | sell at bid; `forecast_changed` |
    | Forecast left bucket but p > bid | mode moved, residual edge | hold; log residual |
+   | Edge gone once (N=2) | first edge-gone tick | hold pending confirm hits |
    | Hold WIN | actual high 72–73 | exit 1.0; PnL = 62.5×(1−0.32) = **+$42.50**; wins++ |
    | Hold LOSS | actual high 70 | exit 0.0; PnL = **−$20**; losses++ |
 
@@ -451,6 +453,8 @@ Forecast-tracking favorite-bucket with **honest** residual `p` — not multi-buc
 | `kelly_fraction` | 0.25 | Fraction of full Kelly |
 | Portfolio caps | 20 / 2 / 6 / 20% | Concentration limits |
 | `forecast_exit_min_edge` | 0.0 | Forecast left bucket+buffer: dump only if residual edge `p − bid ≤` this (else hold) |
+| `forecast_exit_confirm_scans` | 1 | Consecutive edge-gone scans before close (1 = no hysteresis; residual edge only) |
+| `forecast_exit_fast_hours` | 6.0 | If `hours_left` below this, force confirm=1 (no multi-scan wait near resolve) |
 | `calibration_min` | 20 | Samples before city/source σ updates |
 | `scan_interval` | 3600 | Full scan period (seconds) |
 | `monitor_interval` | 600 | Stop/TP poll period (seconds) |

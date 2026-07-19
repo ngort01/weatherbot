@@ -61,3 +61,63 @@ def test_default_min_edge_is_zero(wb):
     assert wb.FORECAST_EXIT_MIN_EDGE == 0.0
     assert wb.should_exit_on_forecast(0.081, 0.080) is False
     assert wb.should_exit_on_forecast(0.079, 0.080) is True
+
+
+def test_bump_forecast_exit_hits_confirm_two(wb):
+    """Default-style confirm=2: first edge-gone holds, second closes."""
+    hits, close = wb.bump_forecast_exit_hits(0, True, confirm=2)
+    assert hits == 1 and close is False
+    hits, close = wb.bump_forecast_exit_hits(hits, True, confirm=2)
+    assert hits == 2 and close is True
+
+
+def test_bump_forecast_exit_hits_reset_on_hold(wb):
+    hits, close = wb.bump_forecast_exit_hits(1, True, confirm=2)
+    assert hits == 2 and close is True
+    hits, close = wb.bump_forecast_exit_hits(1, False, confirm=2)
+    assert hits == 0 and close is False
+
+
+def test_bump_forecast_exit_hits_confirm_one_immediate(wb):
+    hits, close = wb.bump_forecast_exit_hits(0, True, confirm=1)
+    assert hits == 1 and close is True
+
+
+def test_bump_forecast_exit_hits_uses_config(wb, patch_config):
+    patch_config("FORECAST_EXIT_CONFIRM_SCANS", 3)
+    hits, close = wb.bump_forecast_exit_hits(0, True)
+    assert hits == 1 and close is False
+    hits, close = wb.bump_forecast_exit_hits(hits, True)
+    assert hits == 2 and close is False
+    hits, close = wb.bump_forecast_exit_hits(hits, True)
+    assert hits == 3 and close is True
+
+
+def test_forecast_exit_confirm_scans_from_config(wb):
+    """Committed config: confirm=1 (hysteresis off); residual edge only."""
+    assert wb.FORECAST_EXIT_CONFIRM_SCANS >= 1
+    assert wb.FORECAST_EXIT_CONFIRM_SCANS == 1
+    assert wb.FORECAST_EXIT_FAST_HOURS == 6.0
+
+
+def test_forecast_exit_confirm_needed_far_vs_near(wb):
+    # Far from resolution → full hysteresis
+    assert wb.forecast_exit_confirm_needed(24.0) == wb.FORECAST_EXIT_CONFIRM_SCANS
+    assert wb.forecast_exit_confirm_needed(6.0) == wb.FORECAST_EXIT_CONFIRM_SCANS
+    # Strictly inside fast window → immediate confirm
+    assert wb.forecast_exit_confirm_needed(5.9) == 1
+    assert wb.forecast_exit_confirm_needed(0.5) == 1
+    # Missing hours → do not force fast path
+    assert wb.forecast_exit_confirm_needed(None) == wb.FORECAST_EXIT_CONFIRM_SCANS
+
+
+def test_forecast_exit_confirm_needed_fast_disabled(wb, patch_config):
+    patch_config("FORECAST_EXIT_FAST_HOURS", 0.0)
+    assert wb.forecast_exit_confirm_needed(1.0) == wb.FORECAST_EXIT_CONFIRM_SCANS
+
+
+def test_near_resolution_exits_on_first_edge_gone(wb):
+    need = wb.forecast_exit_confirm_needed(3.0)
+    assert need == 1
+    hits, close = wb.bump_forecast_exit_hits(0, True, confirm=need)
+    assert hits == 1 and close is True

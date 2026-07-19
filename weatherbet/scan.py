@@ -9,6 +9,7 @@ from weatherbet import calibration
 from weatherbet.calibration import get_sigma, get_bias, run_calibration
 from weatherbet.model import (
     compute_stop_price, bucket_prob, residual_edge, should_exit_on_forecast,
+    forecast_exit_confirm_needed, bump_forecast_exit_hits,
 )
 from weatherbet.forecasts import (
     take_forecast_snapshot, get_actual_temp, FORECAST_SOURCE_KEYS,
@@ -349,6 +350,9 @@ def scan_and_update():
             # cost+pnl for already-closed positions (state.json balance inflation).
             # Residual edge: sell only when p ≤ bid + forecast_exit_min_edge so we
             # do not dump dust bids while model mass still exceeds salvage (Paris-17).
+            # Hysteresis: require forecast_exit_confirm_scans consecutive edge-gone
+            # evaluations before close, unless hours_left < forecast_exit_fast_hours
+            # (then confirm=1 — do not wait another scan into resolution dust).
             if mkt.get("position") and mkt["position"].get("status") == "open" and forecast_temp is not None:
                 pos = mkt["position"]
                 old_bucket_low = pos["bucket_low"]
@@ -376,7 +380,14 @@ def scan_and_update():
                             sigma, bias,
                         )
                         edge = residual_edge(p_live, current_price)
-                        if should_exit_on_forecast(p_live, current_price):
+                        edge_gone = should_exit_on_forecast(p_live, current_price)
+                        need = forecast_exit_confirm_needed(hours)
+                        hits, do_close = bump_forecast_exit_hits(
+                            pos.get("forecast_exit_hits"), edge_gone,
+                            confirm=need,
+                        )
+                        pos["forecast_exit_hits"] = hits
+                        if edge_gone and do_close:
                             pnl = round(
                                 (current_price - pos["entry_price"]) * pos["shares"], 2)
                             balance += pos["cost"] + pnl
@@ -394,7 +405,20 @@ def scan_and_update():
                             print(
                                 f"  [CLOSE] {loc['name']} {date} — forecast edge gone "
                                 f"(p={p_live:.3f} bid={current_price:.3f} edge="
-                                f"{edge:+.3f}) | PnL: {'+' if pnl >= 0 else ''}{pnl:.2f}")
+                                f"{edge:+.3f} hits={hits}/{need}) | PnL: "
+                                f"{'+' if pnl >= 0 else ''}{pnl:.2f}")
+                        elif edge_gone:
+                            # Edge gone but waiting for confirm scans
+                            pos["residual_p"] = round(p_live, 4)
+                            pos["residual_bid"] = current_price
+                            pos["residual_edge"] = (
+                                round(edge, 4) if edge is not None else None
+                            )
+                            print(
+                                f"  [HOLD] {loc['name']} {date} — edge gone pending "
+                                f"confirm hits={hits}/{need} "
+                                f"(p={p_live:.3f} bid={current_price:.3f} edge="
+                                f"{edge:+.3f})")
                         else:
                             # Mode left bucket but model still > salvage bid — hold
                             pos["residual_p"] = round(p_live, 4)
@@ -406,6 +430,10 @@ def scan_and_update():
                                 f"  [HOLD] {loc['name']} {date} — forecast left bucket "
                                 f"but residual edge p={p_live:.3f} bid={current_price:.3f} "
                                 f"edge={edge:+.3f}")
+                else:
+                    # Back inside bucket+buffer — clear exit hysteresis
+                    if pos.get("forecast_exit_hits"):
+                        pos["forecast_exit_hits"] = 0
 
             # --- OPEN POSITION ---
             # One position per market record (closed position blocks re-entry).

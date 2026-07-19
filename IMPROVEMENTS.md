@@ -219,14 +219,20 @@ Beyond sigma MAE:
 
 ### 12. Forecast change exits are crude
 
-**Status (2026-07-18):** residual-edge gate shipped. After forecast leaves
-bucket+buffer, scan recomputes live `p = bucket_prob(...)` and only closes when
-`p − bid ≤ forecast_exit_min_edge` (default 0). Logs `[HOLD]` when mode moved
-but salvage bid is still below model mass. Price stops remain separate.
+**Status (2026-07-19):** residual-edge gate + hysteresis + near-resolve fast path
+shipped. After forecast leaves bucket+buffer, scan recomputes live
+`p = bucket_prob(...)` and only closes when `p − bid ≤ forecast_exit_min_edge`
+(default 0) on **`forecast_exit_confirm_scans` consecutive** edge-gone
+evaluations (`bump_forecast_exit_hits`; **committed config = 1** = no multi-scan
+wait — residual edge only). Optional N≥2 hysteresis remains available; when
+`hours_left < forecast_exit_fast_hours` (default 6), confirm is forced to 1. Logs `[HOLD]` when mode moved but
+residual edge remains, or when edge is gone but confirm hits are still pending.
+Counter resets on residual hold or when forecast returns inside bucket+buffer.
+Price stops remain separate.
 
 **Still open:**
 
-- Hysteresis (N consecutive edge-gone scans) for model noise
+- [x] Hysteresis (N consecutive edge-gone scans) for model noise
 - Multi-source / blend so one hot source does not force edge-gone (Atlanta-17 class)
 - Separate explicit reasons: `forecast_edge_gone` vs legacy name `forecast_changed`
 
@@ -342,5 +348,13 @@ If you move to probabilistic `p`:
 - Forecast exit residual-edge gate: after bucket+buffer drift, close only when
   `p − bid ≤ forecast_exit_min_edge` (`should_exit_on_forecast`); hold + log
   otherwise. Config key `forecast_exit_min_edge` (default 0).
+
+## Shipped (2026-07-19)
+
+- Forecast exit hysteresis plumbing: `forecast_exit_confirm_scans` +
+  `bump_forecast_exit_hits` / `forecast_exit_confirm_needed`. Committed config
+  uses **1** (hysteresis off) after paper replay did not clearly beat residual
+  edge alone. Set ≥2 to re-enable multi-scan confirm. `forecast_exit_fast_hours`
+  (default 6) forces confirm=1 near resolve when N&gt;1.
 
 If future-you is reading this: partition `p` is live; next leverage is horizon calibration and whether to shop non-matched bins. Don't regress to raw equal-bound CDF.

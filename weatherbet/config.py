@@ -28,6 +28,13 @@ MIN_STOP_WIDTH = float(_cfg.get("min_stop_width", 0.05))
 # Forecast exit: after mode leaves bucket+buffer, sell only if p - bid <= this.
 # 0 → hold whenever model mass still exceeds salvage bid (Paris-17 class).
 FORECAST_EXIT_MIN_EDGE = float(_cfg.get("forecast_exit_min_edge", 0.0))
+# Consecutive edge-gone scans required before forecast exit (1 = no hysteresis).
+FORECAST_EXIT_CONFIRM_SCANS = max(
+    1, int(_cfg.get("forecast_exit_confirm_scans", 1))
+)
+# When hours_to_resolution < this, force confirm=1 (skip multi-scan wait).
+# 0 = always use FORECAST_EXIT_CONFIRM_SCANS.
+FORECAST_EXIT_FAST_HOURS = float(_cfg.get("forecast_exit_fast_hours", 6.0))
 SCAN_INTERVAL = int(_cfg.get("scan_interval", 3600))
 MONITOR_INTERVAL = int(_cfg.get("monitor_interval", 600))
 CALIBRATION_MIN = int(_cfg.get("calibration_min", 30))
