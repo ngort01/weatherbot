@@ -59,7 +59,9 @@ OPEN_METEO_SOURCES = {
         "forecast_days": 7,
         "tag": "JMA",
     },
-    # Korea KMA seamless (may be empty when model feed is down)
+    # Korea KMA seamless — often null: KMA dropped UM-based models end of Mar 2026
+    # for KIM; Open-Meteo paused KMA updates while migrating to the new distribution.
+    # Snap key still collected so the feed can light up without a code change.
     "kma": {
         "model": "kma_seamless",
         "regions": frozenset({"asia"}),
@@ -73,7 +75,8 @@ OPEN_METEO_SOURCES = {
         "forecast_days": 7,
         "tag": "CMA",
     },
-    # Australia BOM ACCESS global (Oceania; may be empty when feed is down)
+    # Australia BOM ACCESS global (Oceania) — often null: BOM suspended open-data
+    # delivery while upgrading platforms; Open-Meteo has nothing to serve until resume.
     "bom": {
         "model": "bom_access_global",
         "regions": frozenset({"oc"}),
