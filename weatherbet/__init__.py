@@ -31,7 +31,7 @@ from weatherbet.open_meteo_sources import (  # noqa: F401
 )
 from weatherbet.forecasts import (  # noqa: F401
     get_ecmwf, get_hrrr, get_metar, get_actual_temp, take_forecast_snapshot,
-    get_open_meteo, sources_for_region,
+    get_open_meteo, sources_for_region, forecast_panel,
 )
 from weatherbet.calibration import (  # noqa: F401
     load_cal, get_sigma, get_bias, snapshot_source_temp, run_calibration, _cal,

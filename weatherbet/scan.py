@@ -163,6 +163,7 @@ def scan_preview():
                 book,
                 opened_at=snap.get("ts"),
                 fetch_live_book=True,
+                forecast_snap=snap,
             )
             if signal:
                 bucket_label = _fmt_bucket(
@@ -449,6 +450,7 @@ def scan_and_update():
                     book,
                     opened_at=snap.get("ts"),
                     fetch_live_book=True,
+                    forecast_snap=snap,
                 )
                 if best_signal:
                     balance -= best_signal["cost"]

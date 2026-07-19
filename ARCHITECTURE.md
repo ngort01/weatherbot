@@ -179,7 +179,7 @@ Spawned by `storage.new_market`; resolution junk gets stamped by `scan_and_updat
 
 **`position` object** (when not null) — entry signal + how you died or got paid. Built in `consider_entry`:
 
-`market_id`, `question`, `bucket_low` / `bucket_high`, `entry_price`, `bid_at_entry`, `spread`, `shares`, `cost`, `p`, `ev`, `kelly`, `forecast_temp`, `forecast_src`, `sigma`, `bias`, `opened_at`, `status` (`open`\|`closed`), `pnl`, `exit_price`, `close_reason`, `closed_at`, `stop_price`, `book_source` (`yes_mid`→`clob` after live fetch), optional `liquidity_usd`, optional `trailing_activated`.
+`market_id`, `question`, `bucket_low` / `bucket_high`, `entry_price`, `bid_at_entry`, `spread`, `shares`, `cost`, `p`, `ev`, `kelly`, `forecast_temp`, `forecast_src`, `sigma`, `bias`, `opened_at`, `status` (`open`\|`closed`), `pnl`, `exit_price`, `close_reason`, `closed_at`, `stop_price`, `book_source` (`yes_mid`→`clob` after live fetch), optional `liquidity_usd`, optional `trailing_activated`, optional `forecast_panel` (source temps + max−min `spread` from the entry snap — observability only; does not change sizing).
 
 ### Calibration — `data/calibration.json`
 

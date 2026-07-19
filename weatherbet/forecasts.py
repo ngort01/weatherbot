@@ -127,6 +127,35 @@ def pick_best(snap, region):
     return None, None
 
 
+def forecast_panel(snap):
+    """
+    Compact multi-source temps + max−min spread for signal annotations.
+
+    Includes every non-null FORECAST_SOURCE_KEYS value on snap (Open-Meteo + METAR).
+    Returns None when snap is missing or has no numeric source temps.
+    Does not include best / best_source / meta keys.
+    """
+    if not snap:
+        return None
+    temps = {}
+    for key in FORECAST_SOURCE_KEYS:
+        if key not in snap:
+            continue
+        val = snap[key]
+        if val is None:
+            continue
+        try:
+            temps[key] = float(val) if not isinstance(val, (int, float)) else val
+        except (TypeError, ValueError):
+            continue
+    if not temps:
+        return None
+    vals = [float(v) for v in temps.values()]
+    panel = dict(temps)
+    panel["spread"] = round(max(vals) - min(vals), 1)
+    return panel
+
+
 def get_open_meteo(city_slug, dates, source_key):
     """
     Fetch one registered Open-Meteo model for a city.

@@ -62,6 +62,48 @@ def test_consider_entry_would_buy_matched_bucket(wb, patch_config):
     assert signal["sigma"] == 1.0
     assert signal["cost"] > 0
     assert signal["cost"] <= wb.MAX_BET
+    # No snap passed → no panel annotation
+    assert "forecast_panel" not in signal
+
+
+def test_consider_entry_attaches_forecast_panel(wb, patch_config):
+    """PR4: open/dry-run signal gets source panel when snap is provided."""
+    from weatherbet import calibration
+    calibration._cal["chicago_hrrr"] = {"sigma": 1.0, "bias": 0.0, "n": 40}
+    wb._cal["chicago_hrrr"] = calibration._cal["chicago_hrrr"]
+
+    # Matched bucket follows pick_best (HRRR 87), not ECMWF 79
+    outcomes = [_outcome(86, 87, yes=0.32, no=0.68, volume=12000)]
+    snap = {
+        "ts": "2026-07-17T12:00:00+00:00",
+        "ecmwf": 79,
+        "hrrr": 87,
+        "metar": None,
+        "best": 87,
+        "best_source": "hrrr",
+    }
+    signal, reason = wb.consider_entry(
+        "chicago",
+        "2026-07-17",
+        outcomes,
+        forecast_temp=87,
+        best_source="hrrr",
+        hours=36.0,
+        balance=10_000.0,
+        book=_empty_book(),
+        fetch_live_book=False,
+        forecast_snap=snap,
+    )
+    assert reason is None, reason
+    assert signal is not None
+    assert signal["forecast_panel"] == {
+        "ecmwf": 79, "hrrr": 87, "spread": 8.0,
+    }
+    # forecast_temp still comes from pick_best, not panel
+    assert signal["forecast_temp"] == 87
+    assert signal["forecast_src"] == "hrrr"
+    assert signal["bucket_low"] == 86
+    assert signal["bucket_high"] == 87
 
 
 def test_consider_entry_no_matching_bucket(wb):

@@ -6,6 +6,7 @@ from weatherbet.forecasts import (
     _hrrr_horizon_date,
     _parse_daily_maxes,
     c_to_display,
+    forecast_panel,
     open_meteo_params,
     persistable_forecast_snap,
     pick_best,
@@ -62,6 +63,49 @@ def test_pick_best_ignores_regional_sources_for_trading():
         "ukmo": 21.0,
     }
     assert pick_best(snap, "eu") == (22.0, "ecmwf")
+
+
+def test_forecast_panel_us_spread():
+    """PR4: multi-source temps + max−min spread on signal annotations."""
+    panel = forecast_panel({
+        "ts": "2026-07-19T12:00:00+00:00",
+        "ecmwf": 79,
+        "hrrr": 87,
+        "metar": None,
+        "best": 87,
+        "best_source": "hrrr",
+    })
+    assert panel == {"ecmwf": 79, "hrrr": 87, "spread": 8.0}
+    # Meta / pick keys never leak into the panel
+    assert "best" not in panel
+    assert "best_source" not in panel
+    assert "ts" not in panel
+
+
+def test_forecast_panel_skips_nulls_and_missing():
+    assert forecast_panel(None) is None
+    assert forecast_panel({}) is None
+    assert forecast_panel({"ecmwf": None, "hrrr": None, "best": 80}) is None
+    # Single source → spread 0
+    assert forecast_panel({"ecmwf": 22.0, "icon": None}) == {
+        "ecmwf": 22.0, "spread": 0.0,
+    }
+
+
+def test_forecast_panel_regional_models_ordered():
+    panel = forecast_panel({
+        "ecmwf": 22.0,
+        "icon": 24.0,
+        "meteofrance": 23.5,
+        "ukmo": 21.0,
+        "metar": 20.0,
+        "best": 22.0,
+        "best_source": "ecmwf",
+    })
+    assert panel["spread"] == 4.0  # 24.0 − 20.0
+    assert list(panel.keys()) == [
+        "ecmwf", "icon", "meteofrance", "ukmo", "metar", "spread",
+    ]
 
 
 def test_sources_for_region_assignment():

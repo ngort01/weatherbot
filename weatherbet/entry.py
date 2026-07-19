@@ -6,6 +6,7 @@ from weatherbet.model import (
     bucket_prob, calc_ev, calc_kelly, bet_size, compute_stop_price,
 )
 from weatherbet.calibration import get_sigma, get_bias
+from weatherbet.forecasts import forecast_panel
 from weatherbet.polymarket import in_bucket
 from weatherbet.risk import risk_limit_reason
 
@@ -35,6 +36,7 @@ def consider_entry(
     *,
     opened_at=None,
     fetch_live_book=True,
+    forecast_snap=None,
 ):
     """
     Evaluate opening YES on the single forecast-matched bucket.
@@ -42,6 +44,7 @@ def consider_entry(
     Returns (signal_or_None, skip_reason_or_None).
     Does not mutate book, balance, or market files.
     When signal is returned, skip_reason is None and the caller may open (or preview).
+    Optional forecast_snap attaches forecast_panel (source temps + spread) for observability.
     """
     if forecast_temp is None:
         return None, "no forecast"
@@ -109,6 +112,9 @@ def consider_entry(
         "book_source":   "yes_mid",  # upgraded to "clob" after live fetch
         "liquidity_usd": None,
     }
+    panel = forecast_panel(forecast_snap) if forecast_snap is not None else None
+    if panel is not None:
+        signal["forecast_panel"] = panel
 
     if fetch_live_book:
         try:
