@@ -34,7 +34,6 @@ Test philosophy: **`TESTING_PLAN.md`**.
 | `MODEL.md` | Probability, EV, Kelly formulas (as implemented) |
 | `IMPROVEMENTS.md` | What is wrong / next, and traps not to step in |
 | `TESTING_PLAN.md` | What tests should lock and why |
-| `sim_dashboard_repost.html` | Unrelated/legacy dashboard asset — leave alone unless asked |
 
 ---
 
