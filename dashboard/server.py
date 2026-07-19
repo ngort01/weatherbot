@@ -159,15 +159,24 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
 
 def main(argv=None):
+    import os
+
+    # Container / Coolify friendly: PORT and DASHBOARD_HOST override defaults
+    env_port = os.environ.get("PORT") or os.environ.get("DASHBOARD_PORT")
+    default_port = int(env_port) if env_port else DEFAULT_PORT
+    default_host = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
+    env_data = os.environ.get("DASHBOARD_DATA")
+    default_data = Path(env_data) if env_data else DEFAULT_DATA
+
     parser = argparse.ArgumentParser(description="WeatherBet paper dashboard")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--port", type=int, default=default_port)
     parser.add_argument(
         "--data",
         type=Path,
-        default=DEFAULT_DATA,
+        default=default_data,
         help="Path to data/ directory (default: repo data/)",
     )
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default=default_host)
     args = parser.parse_args(argv)
 
     data_dir = args.data.resolve()

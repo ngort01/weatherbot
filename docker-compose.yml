@@ -1,0 +1,72 @@
+# WeatherBet on Docker / Coolify
+#
+# Coolify expects Docker Compose as the resource type (not "Dockerfile").
+# Full walkthrough: README.md → "Docker / Coolify".
+#
+# Local:
+#   export VC_KEY=...
+#   docker compose up -d --build
+#   open http://localhost:8765
+#
+# Coolify notes:
+#   - Do NOT host-bind fixed ports (8765:8765) — Coolify's proxy owns 80/443.
+#     We only expose the container port; assign a domain on the dashboard service.
+#   - Set VC_KEY in Coolify Environment Variables (not in git).
+#   - Named volume weatherbet-data survives redeploys; keep it when deleting.
+
+services:
+  bot:
+    build: .
+    image: weatherbet:local
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python", "weatherbet.py"]
+    environment:
+      # Coolify UI → Environment Variables → VC_KEY (mark as secret)
+      VC_KEY: ${VC_KEY:-}
+    volumes:
+      - weatherbet-data:/app/data
+    # No published ports — outbound HTTP only (Open-Meteo, Gamma, VC, METAR)
+
+  dashboard:
+    build: .
+    image: weatherbet:local
+    restart: unless-stopped
+    working_dir: /app
+    command:
+      - python
+      - dashboard/server.py
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8765"
+      - --data
+      - data
+    environment:
+      PORT: "8765"
+      DASHBOARD_HOST: "0.0.0.0"
+    volumes:
+      - weatherbet-data:/app/data:ro
+    # Container port only. Coolify: attach domain → this service → port 8765.
+    # Local (no Coolify): uncomment the ports: block below.
+    expose:
+      - "8765"
+    # ports:
+    #   - "8765:8765"
+    depends_on:
+      - bot
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  weatherbet-data:

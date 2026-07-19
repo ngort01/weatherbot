@@ -168,11 +168,13 @@ python weatherbet.py report       # resolved breakdown + cal summary
 python weatherbet.py reconcile    # audit state.json cash vs market files
 python weatherbet.py reconcile --fix  # rewrite balance if they drift (markets win)
 python weatherbet.py refresh      # rebuild portfolio KPIs from market files
+
+python dashboard/server.py        # read-only UI → http://127.0.0.1:8765
 ```
 
 Run from **repo root** so `config.json` loads from cwd. Point experimental runs at isolated `data/` paths if you value your paper history.
 
----
+
 
 ## Tests
 
