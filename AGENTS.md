@@ -27,7 +27,7 @@ Test philosophy: **`TESTING_PLAN.md`**.
 | `dashboard/` | Read-only paper UI (`python dashboard/server.py`) |
 | `config.json` | Strategy params (committed). Loaded **at import** by `weatherbet.config`. |
 | `.env` / `.env.example` | Secrets only (`VC_KEY`). Never commit real keys. |
-| `Dockerfile` / `docker-compose.yml` | Bot + dashboard for Docker/Coolify; shared `data` volume |
+| `Dockerfile` / `docker-compose.yaml` | Bot + dashboard for Docker/Coolify; shared `data` volume |
 | `requirements.txt` | Runtime deps; `requirements-dev.txt` adds pytest |
 | `data/state.json` | Paper bankroll / portfolio KPIs (runtime; gitignored) |
 | `data/markets/*.json` | One file per `{city}_{date}` market record |

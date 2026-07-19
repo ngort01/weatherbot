@@ -1,5 +1,5 @@
 # WeatherBet — paper bot + read-only dashboard
-# Same image, different command per service (see docker-compose.yml).
+# Same image, different command per service (see docker-compose.yaml).
 FROM python:3.12-slim
 
 WORKDIR /app

@@ -1,7 +1,8 @@
 # WeatherBet on Docker / Coolify
 #
 # Coolify expects Docker Compose as the resource type (not "Dockerfile").
-# Full walkthrough: README.md → "Docker / Coolify".
+# Filename is docker-compose.yaml — Coolify's default path is /docker-compose.yaml
+# (not .yml). Full walkthrough: README.md → "Docker / Coolify".
 #
 # Local:
 #   export VC_KEY=...
